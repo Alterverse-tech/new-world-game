@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "code-celestial-riding-dragon",
+      "name": "云海御空巨龙",
+      "category": "空间地标",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "celestial-dragon",
+      "realmSpace": "heaven",
+      "vehicle": {
+        "kind": "aircraft",
+        "enterRadius": 7.2,
+        "maxSpeed": 6.2,
+        "maxAcceleration": 8,
+        "maxAngularSpeed": 1.8
+      }
+    },
+    {
+      "id": "code-ember-shift-sentinel",
+      "name": "焰虎机甲",
+      "category": "互动摆件",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "ember-shift-sentinel",
+      "interaction": { "mode": "timeline", "durationMs": 2600, "cooldownMs": 2600 }
+    },
+    {
+      "id": "code-glow-cube",
+      "name": "柔光方块",
+      "category": "摆件",
+      "kind": "code",
+      "code": "glow-cube",
+      "defaultScale": 1,
+      "interaction": { "mode": "cycle", "durationMs": 0, "cooldownMs": 150 }
+    },
+    {
+      "id": "code-heaven-hell-door",
+      "name": "天堂地狱任意门",
+      "category": "互动建筑",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "heaven-hell-door",
+      "interaction": { "mode": "cycle", "durationMs": 0, "cooldownMs": 600 },
+      "portal": {
+        "kind": "space",
+        "destinations": [
+          { "id": "heaven", "label": "天堂", "spaceId": "heaven" },
+          { "id": "hell", "label": "地狱", "spaceId": "hell" }
+        ]
+      }
+    },
+    {
+      "id": "code-howls-moving-castle",
+      "name": "哈尔的移动城堡",
+      "category": "载具",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "howls-moving-castle",
+      "vehicle": {
+        "kind": "car",
+        "enterRadius": 6,
+        "maxSpeed": 6,
+        "maxAcceleration": 18,
+        "maxAngularSpeed": 2.2
+      }
+    },
+    {
+      "id": "code-infernal-concert-grand",
+      "name": "燃焰黑色音乐会三角钢琴",
+      "category": "空间地标",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "infernal-concert-grand",
+      "realmSpace": "hell",
+      "interaction": { "mode": "timeline", "durationMs": 56000, "cooldownMs": 1000 }
+    },
+    {
+      "id": "code-light-arch",
+      "name": "光之拱门",
+      "category": "建筑",
+      "kind": "code",
+      "code": "light-arch",
+      "defaultScale": 1,
+      "interaction": { "mode": "cycle", "durationMs": 0, "cooldownMs": 150 }
+    },
+    {
+      "id": "code-precision-rescue-helicopter",
+      "name": "苍隼救援直升机",
+      "category": "载具",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "precision-rescue-helicopter",
+      "vehicle": {
+        "kind": "aircraft",
+        "enterRadius": 4.2,
+        "maxSpeed": 9,
+        "maxAcceleration": 8,
+        "maxAngularSpeed": 1.8
+      }
+    },
+    {
+      "id": "code-soft-bench",
+      "name": "软垫长椅",
+      "category": "家具",
+      "kind": "code",
+      "code": "soft-bench",
+      "defaultScale": 1,
+      "interaction": { "mode": "cycle", "durationMs": 0, "cooldownMs": 150 }
+    },
+    {
+      "id": "code-spacex-starship",
+      "name": "SpaceX 星舰火箭",
+      "category": "航天",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "spacex-starship",
+      "interaction": { "mode": "timeline", "durationMs": 14100, "cooldownMs": 14100 }
+    },
+    {
+      "id": "glb-lounge-chair",
+      "name": "云朵休闲椅",
+      "category": "家具",
+      "kind": "glb",
+      "assetUrl": "/generated-assets/glb-lounge-chair.glb",
+      "defaultScale": 1
+    },
+    {
+      "id": "glb-luminous-plant",
+      "name": "微光盆栽",
+      "category": "绿植",
+      "kind": "glb",
+      "assetUrl": "/generated-assets/glb-luminous-plant.glb",
+      "defaultScale": 1
+    },
+    {
+      "id": "glb-pedestal-lamp",
+      "name": "环光落地灯",
+      "category": "灯具",
+      "kind": "glb",
+      "assetUrl": "/generated-assets/glb-pedestal-lamp.glb",
+      "defaultScale": 1
+    },
+    {
+      "id": "glb-yellow-sports-car",
+      "name": "黄色跑车",
+      "category": "载具",
+      "kind": "glb",
+      "defaultScale": 2,
+      "assetUrl": "/generated-assets/glb-yellow-sports-car.glb"
+    }
+  ]
+}

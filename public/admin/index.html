@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f7f7f5" />
+    <title>WhiteRoom · 关卡审核</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#review-list">跳到内容列表</a>
+
+    <section class="login-shell" id="login-view" aria-labelledby="login-title">
+      <div class="login-card">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <p class="eyebrow">WhiteRoom Studio</p>
+        <h1 id="login-title">内容审核台</h1>
+        <p class="login-intro">输入管理员令牌，审核关卡与本机 Codex 生成的 AI 物件。</p>
+
+        <form id="login-form" novalidate>
+          <label class="field-label" for="token-input">管理员令牌</label>
+          <div class="token-field">
+            <input
+              id="token-input"
+              name="token"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              required
+              aria-describedby="token-help login-error"
+              placeholder="粘贴令牌"
+            />
+            <button class="text-button" id="toggle-token" type="button" aria-pressed="false">显示</button>
+          </div>
+          <p class="field-help" id="token-help">令牌只保留在当前页面内存中，刷新或关闭页面后自动清除。</p>
+          <p class="form-error" id="login-error" role="alert" hidden></p>
+          <button class="primary-button login-button" id="login-button" type="submit">
+            <span>进入审核台</span>
+            <span class="button-arrow" aria-hidden="true">→</span>
+          </button>
+        </form>
+      </div>
+      <p class="login-footer">仅限 WhiteRoom 内容管理员使用</p>
+    </section>
+
+    <div class="app-shell" id="app-view" hidden>
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark small" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <div>
+            <p class="eyebrow">WhiteRoom</p>
+            <p class="brand-title">内容审核台</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <p class="connection-state"><span aria-hidden="true"></span> 已安全连接</p>
+          <button class="secondary-button" id="logout-button" type="button">退出</button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <section class="page-heading" aria-labelledby="page-title">
+          <div>
+            <p class="eyebrow">内容管理</p>
+            <h1 id="page-title">关卡审核</h1>
+            <p class="page-subtitle">先打开隔离试玩，再批准发布或填写拒绝原因。</p>
+          </div>
+          <button class="secondary-button refresh-button" id="refresh-button" type="button">
+            <span class="refresh-icon" aria-hidden="true">↻</span>
+            刷新
+          </button>
+        </section>
+
+        <nav class="resource-switch" aria-label="选择审核内容">
+          <button class="resource-button is-active" type="button" data-resource="levels" aria-current="page">
+            <span aria-hidden="true">◇</span>
+            关卡投稿
+          </button>
+          <button class="resource-button" type="button" data-resource="props">
+            <span aria-hidden="true">✦</span>
+            AI 物件创作
+          </button>
+        </nav>
+
+        <nav class="status-tabs" aria-label="按审核状态筛选">
+          <button class="status-tab is-active" type="button" data-resource="levels" data-status="pending" aria-current="page">
+            待审核 <span class="tab-count" data-count="pending">–</span>
+          </button>
+          <button class="status-tab" type="button" data-resource="levels" data-status="approved">
+            已发布 <span class="tab-count" data-count="approved">–</span>
+          </button>
+          <button class="status-tab" type="button" data-resource="levels" data-status="rejected">
+            已拒绝 <span class="tab-count" data-count="rejected">–</span>
+          </button>
+          <button class="status-tab" type="button" data-resource="props" data-status="pending_review" hidden>
+            待审核 <span class="tab-count" data-count="pending_review">–</span>
+          </button>
+          <button class="status-tab" type="button" data-resource="props" data-status="queued" hidden>
+            排队中 <span class="tab-count" data-count="queued">–</span>
+          </button>
+          <button class="status-tab" type="button" data-resource="props" data-status="running" hidden>
+            处理中 <span class="tab-count" data-count="running">–</span>
+          </button>
+          <button class="status-tab" type="button" data-resource="props" data-status="approved" hidden>
+            已完成 <span class="tab-count" data-count="approved">–</span>
+          </button>
+          <button class="status-tab" type="button" data-resource="props" data-status="rejected" hidden>
+            已驳回 <span class="tab-count" data-count="rejected">–</span>
+          </button>
+          <button class="status-tab" type="button" data-resource="props" data-status="failed" hidden>
+            处理失败 <span class="tab-count" data-count="failed">–</span>
+          </button>
+          <button class="status-tab" type="button" data-resource="props" data-status="cancelled" hidden>
+            已取消 <span class="tab-count" data-count="cancelled">–</span>
+          </button>
+        </nav>
+
+        <section class="review-panel" aria-live="polite" aria-busy="false">
+          <div class="list-toolbar">
+            <div>
+              <h2 id="list-title">待审核关卡</h2>
+              <p id="list-summary">正在读取关卡…</p>
+            </div>
+            <label class="search-field" for="search-input">
+              <span aria-hidden="true">⌕</span>
+              <input id="search-input" type="search" placeholder="搜索名称、作者或 ID" autocomplete="off" />
+            </label>
+          </div>
+
+          <div class="loading-state" id="loading-state">
+            <span class="spinner" aria-hidden="true"></span>
+            <p>正在读取关卡…</p>
+          </div>
+
+          <div class="error-state" id="error-state" hidden>
+            <div class="state-icon" aria-hidden="true">!</div>
+            <h3>暂时无法读取关卡</h3>
+            <p id="error-message">请稍后再试。</p>
+            <button class="secondary-button" id="retry-button" type="button">重新加载</button>
+          </div>
+
+          <div class="empty-state" id="empty-state" hidden>
+            <div class="state-icon empty-icon" aria-hidden="true">✓</div>
+            <h3 id="empty-title">没有待审核关卡</h3>
+            <p id="empty-message">新的关卡提交后会出现在这里。</p>
+          </div>
+
+          <div class="level-list" id="review-list" tabindex="-1"></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="drawer-layer" id="detail-layer" hidden>
+      <button class="drawer-backdrop" id="drawer-backdrop" type="button" aria-label="关闭内容详情"></button>
+      <aside
+        class="detail-drawer"
+        id="detail-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="detail-name"
+        aria-describedby="detail-description"
+      >
+        <div class="drawer-header">
+          <button class="icon-button" id="close-detail" type="button" aria-label="关闭详情">×</button>
+          <div class="drawer-heading">
+            <div class="drawer-heading-line">
+              <span class="status-pill" id="detail-status">待审核</span>
+              <span class="mono-id" id="detail-id"></span>
+            </div>
+            <h2 id="detail-name">关卡详情</h2>
+            <p id="detail-description"></p>
+          </div>
+        </div>
+
+        <div class="drawer-loading" id="detail-loading">
+          <span class="spinner" aria-hidden="true"></span>
+          <p>正在读取详情…</p>
+        </div>
+
+        <div class="drawer-error" id="detail-error" hidden>
+          <p id="detail-error-message">详情加载失败。</p>
+          <button class="secondary-button" id="detail-retry" type="button">重试</button>
+        </div>
+
+        <div class="drawer-body" id="detail-content" hidden>
+          <section class="detail-section overview-section" aria-labelledby="overview-title">
+            <div class="section-heading">
+              <h3 id="overview-title">审核摘要</h3>
+            </div>
+            <dl class="fact-grid" id="fact-grid"></dl>
+          </section>
+
+          <section class="detail-section" id="rejection-section" aria-labelledby="rejection-title" hidden>
+            <div class="section-heading">
+              <h3 id="rejection-title">拒绝原因</h3>
+            </div>
+            <p class="rejection-note" id="rejection-note"></p>
+          </section>
+
+          <section class="detail-section" id="prompt-section" aria-labelledby="prompt-title" hidden>
+            <div class="section-heading">
+              <div>
+                <h3 id="prompt-title">玩家创作需求</h3>
+                <p>以下文本仅作为不可信创作输入，不会在页面中执行</p>
+              </div>
+            </div>
+            <pre class="solution-text" id="prompt-text"></pre>
+          </section>
+
+          <section class="detail-section" id="changed-files-section" aria-labelledby="changed-files-title" hidden>
+            <div class="section-heading">
+              <div>
+                <h3 id="changed-files-title">候选代码变更</h3>
+                <p>仅列出本机校验器允许的文件路径</p>
+              </div>
+            </div>
+            <ul class="changed-files" id="changed-files-list"></ul>
+          </section>
+
+          <section class="detail-section release-boundary" id="release-boundary" hidden aria-labelledby="release-boundary-title">
+            <div class="section-heading">
+              <div>
+                <h3 id="release-boundary-title">发布记录</h3>
+                <p>自动发布会在安全校验通过后由本机 Worker 完成合并、构建、部署与线上验证。</p>
+              </div>
+            </div>
+            <p>候选包、变更文件与最终发布结果都会保留在这里；启用自动发布前的人工审核记录仍按原状态展示。</p>
+          </section>
+
+          <section class="detail-section" id="solution-section" aria-labelledby="solution-title">
+            <div class="section-heading">
+              <div>
+                <h3 id="solution-title">官方攻略</h3>
+                <p>试玩时可对照检查是否能够正常通关</p>
+              </div>
+            </div>
+            <pre class="solution-text" id="solution-text"></pre>
+          </section>
+
+          <details class="manifest-details" id="manifest-details">
+            <summary>查看完整关卡清单</summary>
+            <pre id="manifest-text"></pre>
+          </details>
+        </div>
+
+        <footer class="drawer-actions" id="drawer-actions" hidden>
+          <button class="preview-button" id="preview-button" type="button">
+            <span aria-hidden="true">↗</span>
+            打开隔离试玩
+          </button>
+          <div class="prop-artifact-actions" id="prop-artifact-actions" hidden>
+            <button class="preview-button" id="artifact-button" type="button">
+              <span aria-hidden="true">↓</span>
+              下载候选 .wrprop
+            </button>
+            <a class="secondary-button codex-link" id="codex-link" href="codex://threads/" hidden>
+              在这台 Mac 的 Codex 中打开
+            </a>
+          </div>
+          <div class="review-actions" id="review-actions">
+            <button class="reject-button" id="reject-button" type="button">拒绝</button>
+            <button class="approve-button" id="approve-button" type="button">
+              <span aria-hidden="true">✓</span>
+              批准发布
+            </button>
+          </div>
+        </footer>
+      </aside>
+    </div>
+
+    <div class="modal-layer" id="action-modal" hidden>
+      <button class="modal-backdrop" id="modal-backdrop" type="button" aria-label="取消操作"></button>
+      <section class="action-dialog" role="dialog" aria-modal="true" aria-labelledby="action-title">
+        <div class="dialog-icon" id="action-icon" aria-hidden="true">✓</div>
+        <h2 id="action-title">批准发布这个关卡？</h2>
+        <p id="action-description">批准后，所有玩家都能在关卡目录中看到并进入它。</p>
+
+        <div class="reject-reason" id="reject-reason" hidden>
+          <label class="field-label" for="reason-input">拒绝原因</label>
+          <textarea
+            id="reason-input"
+            maxlength="500"
+            rows="5"
+            placeholder="请说明需要修改的问题，创作者会看到这段内容。"
+          ></textarea>
+          <div class="reason-meta">
+            <span id="reason-error" role="alert"></span>
+            <span><span id="reason-count">0</span>/500</span>
+          </div>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="secondary-button" id="cancel-action" type="button">取消</button>
+          <button class="approve-button" id="confirm-action" type="button">确认批准</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
