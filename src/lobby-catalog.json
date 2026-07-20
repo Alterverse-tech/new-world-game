@@ -2,6 +2,21 @@
   "schemaVersion": 1,
   "items": [
     {
+      "id": "code-azure-midnight-roadster",
+      "name": "蓝曜双座跑车",
+      "category": "载具",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "azure-midnight-roadster",
+      "vehicle": {
+        "kind": "car",
+        "enterRadius": 3.5,
+        "maxSpeed": 28,
+        "maxAcceleration": 21,
+        "maxAngularSpeed": 2.8
+      }
+    },
+    {
       "id": "code-celestial-riding-dragon",
       "name": "云海御空巨龙",
       "category": "空间地标",
