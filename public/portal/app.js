@@ -75,7 +75,7 @@ function loreOf(error, fallback) {
 async function ensureIdentity() {
   const payload = await api('/api/lobby/identity');
   state.ownerId = payload.ownerId;
-  state.signedIn = payload.signedIn === true;
+  state.signedIn = payload.account?.signedIn === true;
   const chip = $('identity-chip');
   chip.hidden = false;
   $('identity-label').textContent = `${state.signedIn ? '账号潜航者' : '访客潜航者'} · ${payload.ownerId.slice(0, 14)}…`;
