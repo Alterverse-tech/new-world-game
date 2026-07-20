@@ -16,7 +16,7 @@
 | 梦域 | 关卡 / 世界 | `.wrlevel` 包发布 + 多频道大厅 |
 | 梦锚（锚在域存） | 内容持久化 | 文件系统存储，创作者离线后内容存续 |
 | 潜流 · 愿念 · 凝结 | 生成式 AI 流水线 | prop-creation 任务队列 + Codex worker |
-| 沉重律（浮不起来） | 内容安全审核 | 校验/审核拒绝响应统一携带 `lore` 字段 |
+| 沉重律（浮不起来） | 内容安全审核 | 内容校验（413/415/422）与关卡审核拒绝响应携带 `lore` 字段 |
 | 图腾 · 凝痕 | 账号身份 · 创作签名 | `/api/dreamsea/totem`，潜意识自凝、他人视角失焦 |
 | 念脉 · 回响 · 念种 | 内容哈希溯源 · remix 授权 | `/api/dreamsea/lineage/:hash`、`/api/dreamsea/seeds` |
 | 共笔权 | 地块协作权限 | `/api/lobby/plots/:id/coauthors` |
@@ -91,6 +91,8 @@ GET /healthz
 
 ### 眠海世界观
 
+除 `worldview` 与 `lineage` 为公开只读外，眠海身份端点都要求先访问一次 `GET /api/lobby/identity` 获取身份 Cookie（「接入潜航协议」），并纳入大厅限流。
+
 - `GET /api/dreamsea/worldview`：层带、三条海律、潜航协议、阶位表、术语表、标准梦时与进行中的梦灾
 - `GET /api/dreamsea/totem`：本人图腾（初次调用即「初次下潜」自动凝成；确定性、不可转让）
 - `GET /api/dreamsea/totems/:ownerId`：他人图腾——永远失焦，仅露出凝痕（签名）
@@ -111,7 +113,7 @@ GET /healthz
 - `GET /api/levels/:id/status`：查询审核状态（被拒绝时响应携带沉重律 `lore`）
 - `/api/admin/levels/*`：管理员列表、详情、预览、批准和拒绝
 - `GET /registry.json`：公开海图（仅漂浮中的已批准梦域；沉没者见迷失域 API）
-- `GET|HEAD /levels/:id/*`：读取已发布梦域文件（访问即续浮力）
+- `GET|HEAD /levels/:id/*`：读取已发布梦域文件（加载梦域主文档 `level.json` 视为一次到访、续浮力；已沉没梦域不因静态访问上浮，须经打捞）
 
 ### Avatar（梦身）
 

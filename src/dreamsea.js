@@ -4,6 +4,7 @@ import path from 'node:path';
 import { GRAVITY_LAW_LORE, HttpError } from './errors.js';
 import { atomicWriteJson } from './store.js';
 import { LOBBY_OWNER_ID_PATTERN } from './auth.js';
+import { LEVEL_ID_PATTERN } from './validator.js';
 
 export { GRAVITY_LAW_LORE };
 
@@ -256,7 +257,7 @@ export class DreamseaStore {
     if (buoyancy?.schemaVersion === 1 && buoyancy.levels && typeof buoyancy.levels === 'object') {
       for (const [levelId, entry] of Object.entries(buoyancy.levels)) {
         if (
-          /^[a-z0-9][a-z0-9-]{2,63}$/.test(levelId)
+          LEVEL_ID_PATTERN.test(levelId)
           && Number.isSafeInteger(entry?.lastVisitedAt)
           && entry.lastVisitedAt >= 0
         ) {
@@ -284,6 +285,12 @@ export class DreamseaStore {
     if (this.buoyancyTimer) {
       clearTimeout(this.buoyancyTimer);
       this.buoyancyTimer = null;
+    }
+    // 关停时把还在防抖窗口内的浮力数据落盘，避免最近的到访被回退
+    if (this.buoyancyDirty) {
+      this.flushBuoyancy().catch((error) => {
+        this.logger.error?.('dreamsea buoyancy final flush failed', error);
+      });
     }
   }
 
@@ -344,18 +351,21 @@ export class DreamseaStore {
     return null;
   }
 
+  // 队列内部使用：调用方须已处于 enqueue 的串行任务中
+  async totemForSerialized(ownerId) {
+    const existing = await this.loadTotem(ownerId);
+    if (existing) return existing;
+    const record = this.condenseTotem(ownerId, new Date(this.clock()).toISOString());
+    await atomicWriteJson(this.ownerFilePath(this.totemsDirectory, ownerId), record);
+    this.totems.set(record.ownerId, record);
+    return record;
+  }
+
   async ensureTotem(ownerId) {
     if (!validOwnerId(ownerId)) {
       throw new HttpError(422, 'invalid_owner_id', 'A valid owner ID is required');
     }
-    return this.enqueue(async () => {
-      const existing = await this.loadTotem(ownerId);
-      if (existing) return existing;
-      const record = this.condenseTotem(ownerId, new Date(this.clock()).toISOString());
-      await atomicWriteJson(this.ownerFilePath(this.totemsDirectory, ownerId), record);
-      this.totems.set(record.ownerId, record);
-      return record;
-    });
+    return this.enqueue(() => this.totemForSerialized(ownerId));
   }
 
   async peekTotem(ownerId) {
@@ -387,12 +397,6 @@ export class DreamseaStore {
       description: '一件小物。无论如何注视，它在你的视野中永远失焦。',
       lore: '图腾律：图腾在他人眼中永远失焦，仿制品无法通过握持验证。',
     };
-  }
-
-  async sigilFor(ownerId) {
-    if (!validOwnerId(ownerId)) return null;
-    const totem = await this.ensureTotem(ownerId);
-    return totem.sigil;
   }
 
   // -------------------------------------------------------------------------
@@ -533,13 +537,15 @@ export class DreamseaStore {
       const now = new Date(this.clock()).toISOString();
       const existing = await this.loadLineage(hash);
       if (!existing) {
+        // 凝痕取自已持久化的图腾，密钥轮换不改变既有签名
+        const originSigil = normalizedOwner ? (await this.totemForSerialized(normalizedOwner)).sigil : null;
         const record = {
           schemaVersion: 1,
           hash,
           kind,
           origin: {
             ownerId: normalizedOwner,
-            sigil: normalizedOwner ? this.condenseTotem(normalizedOwner, now).sigil : null,
+            sigil: originSigil,
             name: typeof name === 'string' && name.trim() ? name.trim().slice(0, 80) : null,
             condensedAt: now,
           },
@@ -548,25 +554,29 @@ export class DreamseaStore {
         };
         await atomicWriteJson(this.lineagePath(hash), record);
         this.lineages.set(hash, record);
-        return { lineage: record, isOrigin: true, echo: null };
+        return { lineage: record, isOrigin: true, echo: null, echoIsNew: false };
       }
       if (existing.origin.ownerId === normalizedOwner) {
-        return { lineage: existing, isOrigin: true, echo: null };
+        return { lineage: existing, isOrigin: true, echo: null, echoIsNew: false };
       }
       const honored = normalizedOwner !== null
         && existing.seeds.some((seed) => seed.toOwnerId === normalizedOwner);
-      const sigil = normalizedOwner ? this.condenseTotem(normalizedOwner, now).sigil : null;
-      const known = existing.echoes.find((echo) => echo.ownerId === normalizedOwner && normalizedOwner !== null);
+      const sigil = normalizedOwner ? (await this.totemForSerialized(normalizedOwner)).sigil : null;
+      // 每位回响者（含匿名合并为一条）只记一条念脉条目，重复重凝仅刷新时间
+      const known = existing.echoes.find((echo) => echo.ownerId === normalizedOwner);
+      let echoIsNew = false;
       if (known) {
         known.at = now;
         known.honored = honored;
       } else if (existing.echoes.length < MAX_ECHOES_PER_LINEAGE) {
         existing.echoes.push({ ownerId: normalizedOwner, sigil, at: now, honored });
+        echoIsNew = true;
       }
       await atomicWriteJson(this.lineagePath(hash), existing);
       return {
         lineage: existing,
         isOrigin: false,
+        echoIsNew,
         echo: {
           originSigil: existing.origin.sigil,
           originName: existing.origin.name,
@@ -594,6 +604,10 @@ export class DreamseaStore {
       if (!lineage) throw new HttpError(404, 'dreamsea_lineage_not_found', 'No condensation lineage exists for this hash');
       if (lineage.origin.ownerId !== granter) {
         throw new HttpError(403, 'dreamsea_not_origin', 'Only the origin dreamer may grant a seed for this work');
+      }
+      // 念种当面授受：收种者必须是已凝成图腾的潜航者
+      if (!(await this.loadTotem(recipient))) {
+        throw new HttpError(404, 'dreamsea_dreamer_unknown', 'This dreamer has not condensed a totem yet');
       }
       if (lineage.seeds.some((seed) => seed.toOwnerId === recipient)) {
         throw new HttpError(409, 'dreamsea_seed_exists', 'This dreamer already carries a seed for this work');
@@ -712,6 +726,16 @@ export class DreamseaStore {
     return false;
   }
 
+  // 巡查后同步基线：即使 registryFilter 未接到本 store（自定义 store），
+  // 巡查也不会在每个周期都误报 changed 并重建海图
+  syncAppliedSunken(records) {
+    const current = new Set();
+    for (const record of records) {
+      if (record.status === 'approved' && this.isSunken(record.id)) current.add(record.id);
+    }
+    this.appliedSunkenIds = current;
+  }
+
   abyssView(records) {
     const now = this.clock();
     return records
@@ -762,7 +786,10 @@ export class DreamseaStore {
     const safeNote = note === null || note === undefined
       ? null
       : normalizedLoreText(note, MAX_CALAMITY_NOTE_CHARACTERS, 'calamity_note');
-    if (channel !== null && channel !== undefined && !CALAMITY_CHANNEL_PATTERN.test(channel)) {
+    if (
+      channel !== null && channel !== undefined
+      && (typeof channel !== 'string' || !CALAMITY_CHANNEL_PATTERN.test(channel))
+    ) {
       throw new HttpError(422, 'invalid_calamity_channel', 'calamity channel must be a valid lobby channel');
     }
     if (!Number.isSafeInteger(durationMs) || durationMs < 60_000 || durationMs > 7 * 24 * 60 * 60_000) {

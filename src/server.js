@@ -755,7 +755,18 @@ async function completePropCreation(request, response, context, id) {
       autoPublish: context.propAutoPublish,
     });
     const record = await context.propCreationStore.get(id);
-    if (record?.ownerId) await recordDreamActivity(context, record.ownerId, 'creations');
+    if (record?.ownerId) {
+      await recordDreamActivity(context, record.ownerId, 'creations');
+      if (record.artifact?.sha256) {
+        await recordDreamCondensation(context, {
+          hash: record.artifact.sha256,
+          kind: 'prop',
+          ownerId: record.ownerId,
+          name: record.proposal?.name ?? null,
+          isNew: false,
+        });
+      }
+    }
     sendJson(response, 200, { job }, { 'Cache-Control': 'no-store' });
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
@@ -1347,7 +1358,8 @@ async function recordDreamCondensation(context, { hash, kind, ownerId, name, isN
     const result = await context.dreamseaStore.recordCondensation({ hash, kind, ownerId, name });
     if (ownerId && result.isOrigin && isNew) {
       await context.dreamseaStore.recordActivity(ownerId, 'creations');
-    } else if (ownerId && !result.isOrigin) {
+    } else if (ownerId && !result.isOrigin && result.echoIsNew) {
+      // 只有首次回响计入旅程；重复重凝同一份字节不再刷计数
       await context.dreamseaStore.recordActivity(ownerId, 'echoes');
     }
     return result;
@@ -1355,6 +1367,13 @@ async function recordDreamCondensation(context, { hash, kind, ownerId, name, isN
     context.logger.error?.('dreamsea lineage record failed', error);
     return null;
   }
+}
+
+// 眠海身份端点的统一门槛：必须已接入潜航协议（持有身份 Cookie），并计入大厅限流
+function requireDreamer(request, context) {
+  const ownerId = requireLobbyOwner(request, context);
+  context.lobbyRateLimiter.check(`dreamsea:${ownerId}`, requestIp(request));
+  return ownerId;
 }
 
 function getDreamseaWorldview(response, context) {
@@ -1365,12 +1384,13 @@ function getDreamseaWorldview(response, context) {
 }
 
 async function getDreamseaTotem(request, response, context) {
-  const ownerId = ensureLobbyOwner(request, response, context);
+  const ownerId = requireDreamer(request, context);
   const totem = await context.dreamseaStore.ensureTotem(ownerId);
   sendPrivateLobbyJson(response, 200, { totem: context.dreamseaStore.totemView(totem) });
 }
 
-async function getDreamseaTotemPublic(response, context, ownerId) {
+async function getDreamseaTotemPublic(request, response, context, ownerId) {
+  requireDreamer(request, context);
   const totem = await context.dreamseaStore.peekTotem(ownerId);
   if (!totem) throw new HttpError(404, 'dreamsea_totem_not_found', 'This dreamer has not condensed a totem yet');
   sendJson(response, 200, { totem: context.dreamseaStore.blurredTotemView(totem) }, {
@@ -1380,7 +1400,7 @@ async function getDreamseaTotemPublic(response, context, ownerId) {
 }
 
 async function getDreamseaJourney(request, response, context) {
-  const ownerId = ensureLobbyOwner(request, response, context);
+  const ownerId = requireDreamer(request, context);
   sendPrivateLobbyJson(response, 200, { journey: await context.dreamseaStore.journeyView(ownerId) });
 }
 
@@ -1395,7 +1415,7 @@ async function getDreamseaLineage(response, context, hash) {
 
 async function grantDreamseaSeed(request, response, context) {
   requireSameOriginMutation(request);
-  const ownerId = requireLobbyOwner(request, context);
+  const ownerId = requireDreamer(request, context);
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new HttpError(422, 'invalid_seed_grant', 'A JSON object with hash and toOwnerId is required');
@@ -1421,7 +1441,7 @@ async function grantDreamseaSeed(request, response, context) {
 
 async function diveDreamseaLevel(request, response, context) {
   requireSameOriginMutation(request);
-  const ownerId = ensureLobbyOwner(request, response, context);
+  const ownerId = requireDreamer(request, context);
   const body = await readJsonBody(request);
   if (!body || typeof body !== 'object' || Array.isArray(body)
     || Object.keys(body).length !== 1 || typeof body.levelId !== 'string') {
@@ -1452,6 +1472,7 @@ async function runDreamseaSinkPatrol(context) {
   const records = await context.store.listRecords();
   const changed = context.dreamseaStore.sunkenStateChanged(records);
   if (changed) await context.store.rebuildRegistry();
+  context.dreamseaStore.syncAppliedSunken(records);
   await context.dreamseaStore.flushBuoyancy();
   const sunken = records
     .filter((record) => record.status === 'approved' && context.dreamseaStore.isSunken(record.id))
@@ -1464,7 +1485,7 @@ async function runDreamseaSinkPatrol(context) {
 }
 
 async function listDreamseaAbyss(request, response, context) {
-  const ownerId = requireLobbyOwner(request, context);
+  const ownerId = requireDreamer(request, context);
   // 梦境考古是深潜者的权限（第八章）
   await context.dreamseaStore.assertRank(ownerId, 'deepdiver');
   const records = await context.store.listRecords();
@@ -1476,7 +1497,7 @@ async function listDreamseaAbyss(request, response, context) {
 
 async function salvageDreamseaLevel(request, response, context, levelId) {
   requireSameOriginMutation(request);
-  const ownerId = requireLobbyOwner(request, context);
+  const ownerId = requireDreamer(request, context);
   await context.dreamseaStore.assertRank(ownerId, 'deepdiver');
   if (!LEVEL_ID_PATTERN.test(levelId)) {
     throw new HttpError(404, 'level_not_found', 'Level was not found');
@@ -1845,7 +1866,7 @@ async function route(request, response, context) {
   }
   const dreamseaTotemMatch = /^\/api\/dreamsea\/totems\/([^/]+)$/.exec(pathname);
   if (request.method === 'GET' && dreamseaTotemMatch) {
-    await getDreamseaTotemPublic(response, context, dreamseaTotemMatch[1]);
+    await getDreamseaTotemPublic(request, response, context, dreamseaTotemMatch[1]);
     return;
   }
   if (request.method === 'GET' && pathname === '/api/dreamsea/journey') {
@@ -2005,8 +2026,10 @@ async function route(request, response, context) {
       staticMatch[2],
       context.corsOrigin,
     );
-    // 浮力法则：被访问的梦域获得浮力（已沉没者不因静态访问上浮，须经打捞）
-    context.dreamseaStore.noteLevelVisit(staticMatch[1]);
+    // 浮力法则：加载梦域主文档视为一次到访（已沉没者不因静态访问上浮，须经打捞）
+    if (!staticMatch[2] || staticMatch[2] === 'level.json') {
+      context.dreamseaStore.noteLevelVisit(staticMatch[1]);
+    }
     return;
   }
 

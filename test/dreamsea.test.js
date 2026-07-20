@@ -311,7 +311,7 @@ test('totems condense once, stay deterministic across restarts, and blur for oth
     assert.notEqual(bobTotem.sigil, totem.sigil);
 
     // 图腾律：他人视角永远失焦，只露出凝痕
-    const publicView = await fetch(`${harness.baseUrl}/api/dreamsea/totems/${alice.ownerId}`);
+    const publicView = await fetch(`${harness.baseUrl}/api/dreamsea/totems/${alice.ownerId}`, { headers: { Cookie: bob.cookie } });
     assert.equal(publicView.status, 200);
     const blurred = (await publicView.json()).totem;
     assert.equal(blurred.sigil, totem.sigil);
@@ -319,9 +319,14 @@ test('totems condense once, stay deterministic across restarts, and blur for oth
     assert.equal(blurred.form, undefined);
     assert.equal(blurred.material, undefined);
 
-    const unknown = await fetch(`${harness.baseUrl}/api/dreamsea/totems/owner-99999999-9999-4999-8999-999999999999`);
+    const unknown = await fetch(`${harness.baseUrl}/api/dreamsea/totems/owner-99999999-9999-4999-8999-999999999999`, { headers: { Cookie: bob.cookie } });
     assert.equal(unknown.status, 404);
     assert.equal((await unknown.json()).error.code, 'dreamsea_totem_not_found');
+
+    // 未接入潜航协议（无身份 Cookie）不可触及图腾端点
+    const noIdentity = await fetch(`${harness.baseUrl}/api/dreamsea/totem`);
+    assert.equal(noIdentity.status, 401);
+    assert.equal((await noIdentity.json()).error.code, 'lobby_identity_required');
 
     await harness.close({ remove: false });
     reopened = await createHarness({ dataDirectory: harness.dataDirectory });
@@ -422,6 +427,13 @@ test('lineage records origins, marks echoes, and honors granted seeds', async ()
     assert.equal(bobJourney.counts.echoes, 1);
     assert.equal(bobJourney.counts.creations, 0);
 
+    // 重复重凝同一份字节：念脉与旅程都不再增长（不可刷阶位）
+    assert.equal((await uploadLobbyAsset(harness, bob.cookie, sharedModel, '云朵沙发（复刻）')).status, 200);
+    const echoedAgain = (await (await fetch(`${harness.baseUrl}/api/dreamsea/lineage/${sharedHash}`)).json()).lineage;
+    assert.equal(echoedAgain.echoes.length, 1);
+    const bobJourneyAgain = (await (await fetch(`${harness.baseUrl}/api/dreamsea/journey`, { headers: { Cookie: bob.cookie } })).json()).journey;
+    assert.equal(bobJourneyAgain.counts.echoes, 1);
+
     // Alice（造梦师）授出念种；重复授予 409；非原凝者授予 403
     const granted = await jsonRequest(harness, '/api/dreamsea/seeds', 'POST', {
       hash: sharedHash,
@@ -451,10 +463,30 @@ test('lineage records origins, marks echoes, and honors granted seeds', async ()
     assert.equal(honored.seedCount, 1);
     assert.equal(honored.echoes[0].honored, true);
 
+    // 念种只能授给已凝成图腾的潜航者
+    const unknownRecipient = await jsonRequest(harness, '/api/dreamsea/seeds', 'POST', {
+      hash: sharedHash,
+      toOwnerId: 'owner-88888888-8888-4888-8888-888888888888',
+    }, alice.cookie);
+    assert.equal(unknownRecipient.status, 404);
+    assert.equal((await unknownRecipient.json()).error.code, 'dreamsea_dreamer_unknown');
+
+    // 持种者的后续重凝在凝结当刻即记为承种
+    const carol = await newIdentity(harness);
+    assert.equal((await fetch(`${harness.baseUrl}/api/dreamsea/totem`, { headers: { Cookie: carol.cookie } })).status, 200);
+    assert.equal((await jsonRequest(harness, '/api/dreamsea/seeds', 'POST', {
+      hash: sharedHash,
+      toOwnerId: carol.ownerId,
+    }, alice.cookie)).status, 201);
+    assert.equal((await uploadLobbyAsset(harness, carol.cookie, sharedModel, '云朵沙发（承种版）')).status, 201);
+    const honoredAtCreation = (await (await fetch(`${harness.baseUrl}/api/dreamsea/lineage/${sharedHash}`)).json()).lineage;
+    assert.equal(honoredAtCreation.echoes.length, 2);
+    assert.equal(honoredAtCreation.echoes[1].honored, true);
+
     const seedJourneys = await Promise.all([alice, bob].map(async ({ cookie }) => (
       (await (await fetch(`${harness.baseUrl}/api/dreamsea/journey`, { headers: { Cookie: cookie } })).json()).journey
     )));
-    assert.equal(seedJourneys[0].counts.seedsGranted, 1);
+    assert.equal(seedJourneys[0].counts.seedsGranted, 2);
     assert.equal(seedJourneys[1].counts.seedsReceived, 1);
 
     const missing = await fetch(`${harness.baseUrl}/api/dreamsea/lineage/${'0'.repeat(64)}`);
@@ -536,8 +568,13 @@ test('buoyancy law sinks unvisited dream domains and deep divers salvage them ba
     assert.equal(notSunken.status, 409);
     assert.equal((await notSunken.json()).error.code, 'dreamsea_not_sunken');
 
-    // 浮力状态在重启后保持
+    // 浮力状态在重启后保持：磁盘上的 buoyancy.json 必须真实记录打捞
     await harness.close({ remove: false });
+    const buoyancyOnDisk = JSON.parse(
+      await readFile(path.join(harness.dataDirectory, 'dreamsea', 'buoyancy.json'), 'utf8'),
+    );
+    assert.equal(buoyancyOnDisk.levels[levelId].salvages, 1);
+    assert.equal(buoyancyOnDisk.levels[levelId].lastVisitedAt, now);
     const reopened = await createHarness({
       dataDirectory: harness.dataDirectory,
       clock: () => now,
@@ -551,6 +588,68 @@ test('buoyancy law sinks unvisited dream domains and deep divers salvage them ba
     }
   } finally {
     await rm(harness.dataDirectory, { recursive: true, force: true });
+  }
+});
+
+test('a graceful shutdown flushes buoyancy updates still inside the debounce window', async () => {
+  let now = Date.UTC(2026, 6, 19, 8, 0, 0);
+  const harness = await createHarness({
+    clock: () => now,
+    dreamsea: { sinkAfterMs: 60_000 },
+  });
+  const levelId = 'flush-harbor-b2c3d4';
+  try {
+    const diver = await newIdentity(harness);
+    assert.equal((await uploadLevel(harness, levelArchive(levelId), 'flush-harbor.wrlevel')).status, 201);
+    assert.equal((await reviewLevel(harness, levelId, 'approve')).status, 200);
+
+    now += 30_000;
+    assert.equal((await jsonRequest(harness, '/api/dreamsea/dive', 'POST', { levelId }, diver.cookie)).status, 200);
+    // 立即关停：2 秒防抖窗口尚未到期，close() 必须补一次落盘（异步完成，轮询等待）
+    await harness.close({ remove: false });
+    const buoyancyPath = path.join(harness.dataDirectory, 'dreamsea', 'buoyancy.json');
+    const deadline = Date.now() + 3_000;
+    let buoyancy = null;
+    do {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      try {
+        buoyancy = JSON.parse(await readFile(buoyancyPath, 'utf8'));
+      } catch {
+        buoyancy = null;
+      }
+    } while (buoyancy?.levels?.[levelId]?.lastVisitedAt !== now && Date.now() < deadline);
+    assert.equal(buoyancy.levels[levelId].lastVisitedAt, now);
+    assert.equal(buoyancy.levels[levelId].visits >= 1, true);
+  } finally {
+    await rm(harness.dataDirectory, { recursive: true, force: true });
+  }
+});
+
+test('the sink patrol interval retires unvisited domains without an admin nudge', async () => {
+  let now = Date.UTC(2026, 6, 19, 9, 0, 0);
+  const harness = await createHarness({
+    clock: () => now,
+    dreamsea: { sinkAfterMs: 1_000, sinkPatrolMs: 1_000 },
+  });
+  const levelId = 'patrol-reef-d4e5f6';
+  try {
+    assert.equal((await uploadLevel(harness, levelArchive(levelId), 'patrol-reef.wrlevel')).status, 201);
+    assert.equal((await reviewLevel(harness, levelId, 'approve')).status, 200);
+    assert.deepEqual(
+      (await (await fetch(`${harness.baseUrl}/registry.json`)).json()).levels.map(({ id }) => id),
+      [levelId],
+    );
+
+    now += 1_001;
+    const deadline = Date.now() + 5_000;
+    let levels;
+    do {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      levels = (await (await fetch(`${harness.baseUrl}/registry.json`)).json()).levels;
+    } while (levels.length > 0 && Date.now() < deadline);
+    assert.deepEqual(levels, []);
+  } finally {
+    await harness.close();
   }
 });
 
@@ -611,12 +710,28 @@ test('administrators declare dream calamities that rage and then dissipate', asy
     const dissipated = await (await fetch(`${harness.baseUrl}/api/dreamsea/worldview`)).json();
     assert.deepEqual(dissipated.calamities, []);
 
-    const invalid = await fetch(`${harness.baseUrl}/api/admin/dreamsea/calamities`, {
+    const badDuration = await fetch(`${harness.baseUrl}/api/admin/dreamsea/calamities`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: '', durationMs: 100 }),
+      body: JSON.stringify({ title: '短梦灾', durationMs: 100 }),
     });
-    assert.equal(invalid.status, 422);
+    assert.equal(badDuration.status, 422);
+    assert.equal((await badDuration.json()).error.code, 'invalid_calamity_duration');
+
+    const badTitle = await fetch(`${harness.baseUrl}/api/admin/dreamsea/calamities`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: '' }),
+    });
+    assert.equal(badTitle.status, 422);
+
+    const badChannel = await fetch(`${harness.baseUrl}/api/admin/dreamsea/calamities`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: '域理紊乱', channel: ['0000'] }),
+    });
+    assert.equal(badChannel.status, 422);
+    assert.equal((await badChannel.json()).error.code, 'invalid_calamity_channel');
   } finally {
     await harness.close();
   }
