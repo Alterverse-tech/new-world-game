@@ -222,7 +222,7 @@ test('admin dashboard assets are served without persisting the administrator tok
   const page = await fetch(`${baseUrl}/admin/`);
   assert.equal(page.status, 200);
   assert.equal(page.headers.get('cache-control'), 'private, no-store');
-  assert.match(await page.text(), /WhiteRoom · 关卡审核/);
+  assert.match(await page.text(), /眠海 · 审势台/);
 
   const script = await fetch(`${baseUrl}/admin/app.js`);
   assert.equal(script.status, 200);

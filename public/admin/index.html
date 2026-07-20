@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#f7f7f5" />
-    <title>WhiteRoom · 关卡审核</title>
+    <title>眠海 · 审势台</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23f6f4ee'/%3E%3Cpath d='M4 20c3-4 6-4 9 0s6 4 9 0 4-3 6-1' stroke='%23214f3d' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='9' r='2.6' fill='%239d641d'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -16,9 +17,9 @@
         <div class="brand-mark" aria-hidden="true">
           <span></span><span></span><span></span>
         </div>
-        <p class="eyebrow">WhiteRoom Studio</p>
-        <h1 id="login-title">内容审核台</h1>
-        <p class="login-intro">输入管理员令牌，审核关卡与本机 Codex 生成的 AI 物件。</p>
+        <p class="eyebrow">《眠海》平台 · WhiteRoom Studio</p>
+        <h1 id="login-title">审势台</h1>
+        <p class="login-intro">输入管理员令牌，行使沉重律裁定：审核梦域（关卡）与潜流凝结的 AI 梦物，并主持梦灾与沉没巡查。</p>
 
         <form id="login-form" novalidate>
           <label class="field-label" for="token-input">管理员令牌</label>
@@ -43,7 +44,7 @@
           </button>
         </form>
       </div>
-      <p class="login-footer">仅限 WhiteRoom 内容管理员使用</p>
+      <p class="login-footer">仅限眠海内容管理员使用 · 眠海不审判，它只是浮不起某些东西</p>
     </section>
 
     <div class="app-shell" id="app-view" hidden>
@@ -53,8 +54,8 @@
             <span></span><span></span><span></span>
           </div>
           <div>
-            <p class="eyebrow">WhiteRoom</p>
-            <p class="brand-title">内容审核台</p>
+            <p class="eyebrow">眠海</p>
+            <p class="brand-title">审势台</p>
           </div>
         </div>
         <div class="topbar-actions">
@@ -85,9 +86,13 @@
             <span aria-hidden="true">✦</span>
             AI 物件创作
           </button>
+          <button class="resource-button" type="button" data-resource="dreamsea">
+            <span aria-hidden="true">〰</span>
+            眠海运维
+          </button>
         </nav>
 
-        <nav class="status-tabs" aria-label="按审核状态筛选">
+        <nav class="status-tabs" id="status-tabs" aria-label="按审核状态筛选">
           <button class="status-tab is-active" type="button" data-resource="levels" data-status="pending" aria-current="page">
             待审核 <span class="tab-count" data-count="pending">–</span>
           </button>
@@ -151,6 +156,61 @@
           </div>
 
           <div class="level-list" id="review-list" tabindex="-1"></div>
+        </section>
+
+        <section class="dreamsea-panel" id="dreamsea-panel" hidden aria-labelledby="dreamsea-patrol-title">
+          <article class="dreamsea-card">
+            <div class="section-heading">
+              <div>
+                <h2 id="dreamsea-patrol-title">沉没巡查（浮力法则）</h2>
+                <p>梦以被梦见为生。巡查会让久无人访问的已发布梦域没入迷失域（移出海图但不删除），深潜者可打捞复浮。</p>
+              </div>
+              <button class="secondary-button" id="patrol-button" type="button">立即巡查</button>
+            </div>
+            <div class="patrol-result" id="patrol-result" aria-live="polite"></div>
+          </article>
+
+          <article class="dreamsea-card">
+            <div class="section-heading">
+              <div>
+                <h2>宣告梦灾（限时事件）</h2>
+                <p>当过多相互矛盾的愿念对撞，成片域理会发生紊乱。梦灾无法预告，只能响应；到期自然消散。</p>
+              </div>
+            </div>
+            <form id="calamity-form" novalidate>
+              <div class="calamity-fields">
+                <label class="field-label" for="calamity-title">事件名称（必填，≤80 字）
+                  <input id="calamity-title" maxlength="80" required placeholder="滤念过载：低语潮" />
+                </label>
+                <label class="field-label" for="calamity-note">公告（≤240 字）
+                  <input id="calamity-note" maxlength="240" placeholder="成片域理紊乱，请勿单独下潜。" />
+                </label>
+                <label class="field-label" for="calamity-channel">限定频道（留空为全服）
+                  <input id="calamity-channel" placeholder="0000" />
+                </label>
+                <label class="field-label" for="calamity-duration">持续时长
+                  <select id="calamity-duration">
+                    <option value="1800000">30 分钟</option>
+                    <option value="3600000" selected>1 小时</option>
+                    <option value="21600000">6 小时</option>
+                    <option value="86400000">24 小时</option>
+                  </select>
+                </label>
+              </div>
+              <p class="form-error" id="calamity-error" role="alert" hidden></p>
+              <button class="primary-button" id="calamity-submit" type="submit">宣告梦灾</button>
+            </form>
+          </article>
+
+          <article class="dreamsea-card">
+            <div class="section-heading">
+              <div>
+                <h2>进行中的梦灾</h2>
+                <p>玩家门户与世界观接口会实时展示以下事件。</p>
+              </div>
+            </div>
+            <ul class="calamity-list" id="calamity-list"></ul>
+          </article>
         </section>
       </main>
     </div>

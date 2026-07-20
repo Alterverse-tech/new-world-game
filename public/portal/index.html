@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#050c18" />
+    <title>眠海 · 潜航门户</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23050c18'/%3E%3Cpath d='M4 20c3-4 6-4 9 0s6 4 9 0 4-3 6-1' stroke='%2359c2ff' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='9' r='2.6' fill='%23ffc36b'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/portal/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+    <div class="sea-backdrop" aria-hidden="true">
+      <span class="drift drift-a"></span>
+      <span class="drift drift-b"></span>
+      <span class="drift drift-c"></span>
+    </div>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-glyph" aria-hidden="true">〰</span>
+        <div>
+          <p class="brand-name">眠海</p>
+          <p class="brand-sub">潜航门户 · WhiteRoom</p>
+        </div>
+      </div>
+      <p class="dream-time" id="dream-time" title="标准梦时：全海时间被钉死于岸上时间">标准梦时 --:--:--</p>
+      <div class="identity-chip" id="identity-chip" hidden>
+        <span class="sigil-dot" aria-hidden="true"></span>
+        <span id="identity-label">未接入</span>
+      </div>
+    </header>
+
+    <div class="calamity-banner" id="calamity-banner" hidden role="status"></div>
+
+    <nav class="deck-nav" aria-label="选择区域" id="deck-nav">
+      <button class="deck-tab is-active" type="button" data-deck="world" aria-current="page">总纲</button>
+      <button class="deck-tab" type="button" data-deck="self">我的眠海</button>
+      <button class="deck-tab" type="button" data-deck="chart">海图</button>
+      <button class="deck-tab" type="button" data-deck="lobby">明海大厅</button>
+      <button class="deck-tab" type="button" data-deck="lineage">念脉</button>
+      <button class="deck-tab" type="button" data-deck="abyss">迷失域</button>
+      <button class="deck-tab" type="button" data-deck="wish">愿念</button>
+    </nav>
+
+    <main class="main-content" id="main-content">
+      <!-- 总纲 -->
+      <section class="deck" data-deck-panel="world">
+        <div class="hero">
+          <p class="hero-eyebrow">《眠海》世界观 v0.1</p>
+          <h1>在眠海中，想象即施工，同行即共梦。</h1>
+          <p class="hero-lede" id="world-lede">
+            在人类共享的现实之下，存在一片由全体人类的睡梦沉积而成的意识海洋。
+            你手中的这套潜航协议，让你第一次得以清醒地、结伴地潜入，并留下不随醒来而消散的造物。
+          </p>
+          <div class="notice-card" id="engine-notice" hidden></div>
+        </div>
+
+        <h2 class="deck-title">三条海律</h2>
+        <div class="card-grid" id="sea-laws"></div>
+
+        <h2 class="deck-title">层带</h2>
+        <ol class="strata-list" id="strata-list"></ol>
+
+        <h2 class="deck-title">潜航协议 · 四功能</h2>
+        <div class="card-grid" id="protocol-grid"></div>
+
+        <h2 class="deck-title">阶位</h2>
+        <ol class="rank-ladder" id="rank-ladder"></ol>
+
+        <h2 class="deck-title">共梦礼仪</h2>
+        <ul class="etiquette-list" id="etiquette-list"></ul>
+
+        <details class="glossary">
+          <summary>术语表（世界观 ↔ 产品机制）</summary>
+          <table class="glossary-table">
+            <thead><tr><th>术语</th><th>释义</th><th>对应机制</th></tr></thead>
+            <tbody id="glossary-body"></tbody>
+          </table>
+        </details>
+      </section>
+
+      <!-- 我的眠海 -->
+      <section class="deck" data-deck-panel="self" hidden>
+        <h2 class="deck-title">图腾</h2>
+        <p class="deck-note">初次下潜时由你的潜意识自发凝结。不可指定，不可转让，在他人眼中永远失焦。醒后先看图腾。</p>
+        <div class="totem-stage">
+          <div class="totem-card" id="totem-card">
+            <p class="totem-placeholder" id="totem-placeholder">正在下潜，等待图腾凝成…</p>
+            <div class="totem-body" id="totem-body" hidden>
+              <p class="totem-form" id="totem-form"></p>
+              <p class="totem-description" id="totem-description"></p>
+              <p class="totem-sigil">凝痕 <code id="totem-sigil"></code></p>
+              <p class="totem-lore" id="totem-lore"></p>
+            </div>
+          </div>
+        </div>
+
+        <h2 class="deck-title">旅程与阶位</h2>
+        <div class="journey-panel" id="journey-panel">
+          <div class="rank-now">
+            <p class="rank-label">当前阶位</p>
+            <p class="rank-name" id="rank-name">—</p>
+            <ul class="rank-grants" id="rank-grants"></ul>
+          </div>
+          <div class="rank-next" id="rank-next-block">
+            <p class="rank-label">下一阶位</p>
+            <p class="rank-name small" id="next-rank-name">—</p>
+            <div id="next-rank-progress"></div>
+          </div>
+          <div class="journey-counts">
+            <p class="rank-label">旅程留痕</p>
+            <dl class="counts-grid" id="counts-grid"></dl>
+          </div>
+        </div>
+
+        <h2 class="deck-title">我的梦物（GLB 资产）</h2>
+        <div class="asset-panel">
+          <form class="inline-form" id="asset-upload-form">
+            <label>名称 <input id="asset-name" maxlength="40" required placeholder="云朵沙发" /></label>
+            <label>类别 <input id="asset-category" maxlength="20" required placeholder="家具" /></label>
+            <label>缩放 <input id="asset-scale" value="1" size="4" /></label>
+            <label class="file-label">GLB 文件 <input id="asset-file" type="file" accept=".glb" required /></label>
+            <button class="primary-button" type="submit">凝结上传</button>
+          </form>
+          <p class="form-hint">上传即入念脉；与他人相同的字节会自动记为回响。</p>
+          <ul class="asset-list" id="asset-list"></ul>
+        </div>
+      </section>
+
+      <!-- 海图 -->
+      <section class="deck" data-deck-panel="chart" hidden>
+        <h2 class="deck-title">明海海图</h2>
+        <p class="deck-note">锚定于明海的梦域。梦以被梦见为生——下潜即为它续浮力；久无人至的梦域会缓缓沉入迷失域。</p>
+        <div class="chart-toolbar">
+          <button class="secondary-button" id="chart-refresh" type="button">刷新海图</button>
+          <p id="chart-summary"></p>
+        </div>
+        <div class="level-grid" id="level-grid"></div>
+        <p class="empty-note" id="chart-empty" hidden>海图上暂时没有漂浮的梦域。</p>
+      </section>
+
+      <!-- 明海大厅 -->
+      <section class="deck" data-deck-panel="lobby" hidden>
+        <h2 class="deck-title">明海大厅</h2>
+        <p class="deck-note">共梦区的实时状态。认领家园地块即为「投锚」；梦主可授予访客共笔权，受共笔者可在地块内凝结梦物。</p>
+        <form class="inline-form" id="lobby-channel-form">
+          <label>频道 <input id="lobby-channel" value="0000" pattern="[0-9]{4,12}|space-[0-9]{4,12}-(heaven|hell)" /></label>
+          <button class="secondary-button" type="submit">进入频道</button>
+          <p class="online-chip" id="lobby-online" hidden></p>
+        </form>
+
+        <div class="lobby-columns">
+          <div>
+            <h3 class="sub-title">家园地块</h3>
+            <div class="plot-list" id="plot-list"></div>
+          </div>
+          <div>
+            <h3 class="sub-title">域内梦物</h3>
+            <form class="inline-form" id="object-create-form">
+              <label>目录 <select id="object-catalog"></select></label>
+              <label>x <input id="object-x" value="2" size="4" /></label>
+              <label>z <input id="object-z" value="2" size="4" /></label>
+              <button class="secondary-button" type="submit">凝结摆放</button>
+            </form>
+            <ul class="object-list" id="object-list"></ul>
+          </div>
+        </div>
+
+        <h3 class="sub-title">潮汐记录（实时）</h3>
+        <ul class="event-feed" id="event-feed"></ul>
+      </section>
+
+      <!-- 念脉 -->
+      <section class="deck" data-deck-panel="lineage" hidden>
+        <h2 class="deck-title">念脉查询</h2>
+        <p class="deck-note">潜流记得一切凝结的来历。你可以模仿任何东西，但你无法隐瞒你在模仿。</p>
+        <form class="inline-form" id="lineage-form">
+          <label class="grow">内容哈希（sha256）<input id="lineage-hash" pattern="[a-f0-9]{64}" placeholder="64 位十六进制" required /></label>
+          <button class="secondary-button" type="submit">追溯</button>
+        </form>
+        <div class="lineage-result" id="lineage-result" hidden></div>
+
+        <h2 class="deck-title">授出念种</h2>
+        <p class="deck-note">念种是「被启发的权利」，只有原凝者（造梦师阶位以上）能授出；念种当面授受为敬。</p>
+        <form class="inline-form" id="seed-form">
+          <label class="grow">作品哈希 <input id="seed-hash" pattern="[a-f0-9]{64}" required /></label>
+          <label class="grow">受种者 ownerId <input id="seed-owner" placeholder="owner-…" required /></label>
+          <button class="primary-button" type="submit">授出念种</button>
+        </form>
+      </section>
+
+      <!-- 迷失域 -->
+      <section class="deck" data-deck-panel="abyss" hidden>
+        <h2 class="deck-title">迷失域 · 梦境考古</h2>
+        <p class="deck-note">沉没之域在此互相渗透、碎裂。深潜者可下潜打捞，让被遗忘的杰作重见天日。</p>
+        <div class="chart-toolbar">
+          <button class="secondary-button" id="abyss-refresh" type="button">下潜巡视</button>
+          <p id="abyss-summary"></p>
+        </div>
+        <div class="abyss-gate" id="abyss-gate" hidden></div>
+        <ul class="abyss-list" id="abyss-list"></ul>
+      </section>
+
+      <!-- 愿念 -->
+      <section class="deck" data-deck-panel="wish" hidden>
+        <h2 class="deck-title">愿念 · 潜流凝结</h2>
+        <p class="deck-note">向潜流描述想要之物，它会补全细节、凝结成形。造梦师给出骨架，潜流填充血肉。</p>
+        <div class="notice-card" id="wish-status"></div>
+        <form class="stacked-form" id="account-login-form" hidden>
+          <label>Supabase 访问令牌
+            <input id="account-token" type="password" autocomplete="off" placeholder="粘贴 access token" />
+          </label>
+          <button class="secondary-button" type="submit">接入账号</button>
+        </form>
+        <form class="stacked-form" id="wish-form" hidden>
+          <label>愿念（最多 600 字）
+            <textarea id="wish-prompt" maxlength="600" rows="4" placeholder="一盏点亮时照出这个房间昨天样子的灯…"></textarea>
+          </label>
+          <div class="inline-form">
+            <label>目标频道 <input id="wish-channel" value="0000" /></label>
+            <button class="primary-button" type="submit">向潜流许愿</button>
+          </div>
+        </form>
+        <ul class="wish-list" id="wish-list"></ul>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>眠海不审判，它只是浮不起某些东西。 · <span id="footer-time"></span></p>
+    </footer>
+
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+    <script type="module" src="/portal/app.js"></script>
+  </body>
+</html>

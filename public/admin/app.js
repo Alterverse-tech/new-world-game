@@ -107,6 +107,14 @@ const RESOURCE_META = {
       return `/api/admin/prop-creations/${encodeURIComponent(id)}/${action}`;
     },
   },
+  // 眠海运维：非列表型面板（沉没巡查 + 梦灾），刷新逻辑单独分支
+  dreamsea: {
+    pageTitle: '眠海运维',
+    pageSubtitle: '按浮力法则执行沉没巡查，并宣告或查看进行中的梦灾。',
+    noun: '事件',
+    defaultStatus: null,
+    statuses: {},
+  },
 };
 
 const TYPE_LABELS = {
@@ -256,6 +264,18 @@ const elements = {
   cancelAction: document.querySelector('#cancel-action'),
   confirmAction: document.querySelector('#confirm-action'),
   toastRegion: document.querySelector('#toast-region'),
+  statusTabsNav: document.querySelector('#status-tabs'),
+  dreamseaPanel: document.querySelector('#dreamsea-panel'),
+  patrolButton: document.querySelector('#patrol-button'),
+  patrolResult: document.querySelector('#patrol-result'),
+  calamityForm: document.querySelector('#calamity-form'),
+  calamityTitle: document.querySelector('#calamity-title'),
+  calamityNote: document.querySelector('#calamity-note'),
+  calamityChannel: document.querySelector('#calamity-channel'),
+  calamityDuration: document.querySelector('#calamity-duration'),
+  calamitySubmit: document.querySelector('#calamity-submit'),
+  calamityError: document.querySelector('#calamity-error'),
+  calamityList: document.querySelector('#calamity-list'),
 };
 
 // The administrator token deliberately lives only in page memory. Never persist it.
@@ -500,6 +520,10 @@ function showLogin(message = '') {
   elements.toggleToken.setAttribute('aria-pressed', 'false');
   elements.loginError.textContent = message;
   elements.loginError.hidden = !message;
+  elements.patrolResult.replaceChildren();
+  elements.calamityList.replaceChildren();
+  elements.calamityForm.reset();
+  elements.calamityError.hidden = true;
   document.body.classList.remove('has-overlay');
   updateResourceChrome();
   window.setTimeout(() => elements.tokenInput.focus(), 0);
@@ -576,6 +600,10 @@ async function loadAllStatuses({ isLogin = false, announce = false } = {}) {
 }
 
 async function refreshList(announce = false) {
+  if (state.resource === 'dreamsea') {
+    await loadDreamsea(announce).catch(() => {});
+    return;
+  }
   try {
     await loadAllStatuses({ announce });
   } catch (error) {
@@ -611,9 +639,13 @@ function showListError(message) {
 
 function updateResourceChrome() {
   const meta = resourceMeta();
+  const isDreamsea = state.resource === 'dreamsea';
   elements.pageTitle.textContent = meta.pageTitle;
   elements.pageSubtitle.textContent = meta.pageSubtitle;
   elements.searchInput.placeholder = state.resource === 'props' ? '搜索需求、用户、名称或 ID' : '搜索名称、作者或 ID';
+  elements.reviewPanel.hidden = isDreamsea;
+  elements.statusTabsNav.hidden = isDreamsea;
+  elements.dreamseaPanel.hidden = !isDreamsea;
   elements.resourceButtons.forEach((button) => {
     const active = button.dataset.resource === state.resource;
     button.classList.toggle('is-active', active);
@@ -1203,6 +1235,97 @@ async function downloadArtifact() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 眠海运维：沉没巡查 + 梦灾
+// ---------------------------------------------------------------------------
+
+function renderCalamityList(calamities) {
+  if (!calamities.length) {
+    const empty = document.createElement('li');
+    empty.className = 'calamity-empty';
+    empty.textContent = '海面平静，暂无梦灾。';
+    elements.calamityList.replaceChildren(empty);
+    return;
+  }
+  elements.calamityList.replaceChildren(...calamities.map((calamity) => {
+    const item = document.createElement('li');
+    item.className = 'calamity-item';
+    const title = document.createElement('strong');
+    title.textContent = calamity.title;
+    const meta = document.createElement('span');
+    meta.textContent = `${calamity.channel ? `频道 ${calamity.channel}` : '全服'} · 至 ${formatDate(calamity.endsAt)}${calamity.note ? ` · ${calamity.note}` : ''}`;
+    item.append(title, meta);
+    return item;
+  }));
+}
+
+async function loadDreamsea(announce = false) {
+  const payload = await api('/api/dreamsea/worldview');
+  renderCalamityList(payload?.calamities ?? []);
+  if (announce) showToast('眠海运维状态已刷新。');
+}
+
+async function runSinkPatrol() {
+  elements.patrolButton.disabled = true;
+  try {
+    const payload = await api('/api/admin/dreamsea/sink-patrol', { method: 'POST' });
+    const patrol = payload.patrol;
+    const summary = document.createElement('p');
+    summary.className = 'patrol-summary';
+    summary.textContent = patrol.changed
+      ? `巡查完成：海图已更新。漂浮 ${patrol.floating} 个，沉没 ${patrol.sunken.length} 个。`
+      : `巡查完成：无变化。漂浮 ${patrol.floating} 个，沉没 ${patrol.sunken.length} 个。`;
+    elements.patrolResult.replaceChildren(summary);
+    if (patrol.sunken.length) {
+      const list = document.createElement('ul');
+      list.className = 'sunken-list';
+      list.replaceChildren(...patrol.sunken.map((id) => {
+        const item = document.createElement('li');
+        item.textContent = `〜 ${id}（已没入迷失域，等待深潜者打捞）`;
+        return item;
+      }));
+      elements.patrolResult.append(list);
+    }
+    showToast('沉没巡查已执行。');
+  } catch (error) {
+    showToast(errorText(error, '巡查失败。'), 'error');
+  } finally {
+    elements.patrolButton.disabled = false;
+  }
+}
+
+async function submitCalamity(event) {
+  event.preventDefault();
+  const title = elements.calamityTitle.value.trim();
+  if (!title) {
+    elements.calamityError.textContent = '请填写事件名称。';
+    elements.calamityError.hidden = false;
+    elements.calamityTitle.focus();
+    return;
+  }
+  elements.calamityError.hidden = true;
+  elements.calamitySubmit.disabled = true;
+  try {
+    const body = { title, durationMs: Number(elements.calamityDuration.value) };
+    const note = elements.calamityNote.value.trim();
+    const channel = elements.calamityChannel.value.trim();
+    if (note) body.note = note;
+    if (channel) body.channel = channel;
+    const payload = await api('/api/admin/dreamsea/calamities', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    showToast(`梦灾「${payload.calamity.title}」已宣告。`);
+    elements.calamityForm.reset();
+    await loadDreamsea(false);
+  } catch (error) {
+    elements.calamityError.textContent = errorText(error, '宣告失败，请检查填写内容。');
+    elements.calamityError.hidden = false;
+  } finally {
+    elements.calamitySubmit.disabled = false;
+  }
+}
+
 function showToast(message, type = 'success') {
   const toast = document.createElement('div');
   toast.className = `toast${type === 'error' ? ' error' : ''}`;
@@ -1243,6 +1366,8 @@ elements.tabs.forEach((tab) => tab.addEventListener('click', () => {
   if (tab.dataset.resource === state.resource) selectStatus(tab.dataset.status);
 }));
 elements.searchInput.addEventListener('input', renderList);
+elements.patrolButton.addEventListener('click', runSinkPatrol);
+elements.calamityForm.addEventListener('submit', submitCalamity);
 elements.drawerBackdrop.addEventListener('click', () => closeDetail());
 elements.closeDetail.addEventListener('click', () => closeDetail());
 elements.detailRetry.addEventListener('click', loadDetail);

@@ -84,6 +84,14 @@ const ADMIN_ASSETS = new Map([
   ['/admin/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/admin/app.js', ['app.js', 'text/javascript; charset=utf-8']],
 ]);
+// 潜航门户（玩家前端）：与审核台相同的白名单式静态服务
+const PORTAL_ASSET_DIRECTORY = path.resolve(fileURLToPath(new URL('../public/portal/', import.meta.url)));
+const PORTAL_ASSETS = new Map([
+  ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/index.html', ['index.html', 'text/html; charset=utf-8']],
+  ['/portal/styles.css', ['styles.css', 'text/css; charset=utf-8']],
+  ['/portal/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+]);
 const PREVIEW_COOKIE_NAME = '__Secure-whiteroom_preview';
 const LOBBY_OWNER_COOKIE_NAME = 'whiteroom_lobby_owner';
 const LOBBY_OWNER_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
@@ -157,6 +165,33 @@ async function sendAdminAsset(request, response, pathname) {
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
+  });
+  if (request.method === 'HEAD') {
+    response.end();
+    return;
+  }
+  await new Promise((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.once('error', reject);
+    response.once('error', reject);
+    response.once('finish', resolve);
+    stream.pipe(response);
+  });
+}
+
+async function sendPortalAsset(request, response, pathname) {
+  const asset = PORTAL_ASSETS.get(pathname);
+  if (!asset) throw new HttpError(404, 'not_found', 'Resource not found');
+  const [fileName, contentType] = asset;
+  const filePath = path.join(PORTAL_ASSET_DIRECTORY, fileName);
+  const info = await stat(filePath);
+  if (!info.isFile()) throw new HttpError(404, 'not_found', 'Resource not found');
+  response.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Length': info.size,
+    'Cache-Control': 'no-cache',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
   });
   if (request.method === 'HEAD') {
     response.end();
@@ -1563,6 +1598,11 @@ async function route(request, response, context) {
     sendJson(response, 200, { status: 'ok', service: 'whiteroom-platform' }, {
       'Cache-Control': 'no-store',
     });
+    return;
+  }
+
+  if ((request.method === 'GET' || request.method === 'HEAD') && PORTAL_ASSETS.has(pathname)) {
+    await sendPortalAsset(request, response, pathname);
     return;
   }
 
