@@ -330,6 +330,11 @@ export class LobbyAssetStore {
     return this.records.get(id) ?? null;
   }
 
+  // 资产体检用：全量存储记录（含 bytes 与几何/纹理统计）
+  listStored() {
+    return [...this.records.values()];
+  }
+
   listOwner(ownerId) {
     if (!OWNER_ID_PATTERN.test(ownerId ?? '')) return [];
     return [...(this.ownerRecords.get(ownerId) ?? [])]

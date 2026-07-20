@@ -276,6 +276,10 @@ const elements = {
   calamitySubmit: document.querySelector('#calamity-submit'),
   calamityError: document.querySelector('#calamity-error'),
   calamityList: document.querySelector('#calamity-list'),
+  assetReportForm: document.querySelector('#asset-report-form'),
+  reportChannel: document.querySelector('#report-channel'),
+  reportButton: document.querySelector('#report-button'),
+  reportResult: document.querySelector('#report-result'),
 };
 
 // The administrator token deliberately lives only in page memory. Never persist it.
@@ -524,6 +528,8 @@ function showLogin(message = '') {
   elements.calamityList.replaceChildren();
   elements.calamityForm.reset();
   elements.calamityError.hidden = true;
+  elements.reportResult.replaceChildren();
+  elements.reportChannel.value = '0000';
   document.body.classList.remove('has-overlay');
   updateResourceChrome();
   window.setTimeout(() => elements.tokenInput.focus(), 0);
@@ -1326,6 +1332,62 @@ async function submitCalamity(event) {
   }
 }
 
+function reportMegabytes(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderAssetReport(report) {
+  const container = elements.reportResult;
+  container.replaceChildren();
+  const summary = document.createElement('p');
+  summary.className = 'patrol-summary';
+  summary.textContent = `Avatar ${report.avatars.count} 个（共 ${reportMegabytes(report.avatars.totalBytes)}）· GLB 梦物 ${report.lobbyAssets.count} 个（共 ${reportMegabytes(report.lobbyAssets.totalBytes)}）· 频道 ${report.channel.channel} 动态首载 ${reportMegabytes(report.channel.dynamicPayload.bytes)}`;
+  container.append(summary);
+
+  const usage = document.createElement('p');
+  usage.className = 'report-usage';
+  const utilization = report.channel.utilization;
+  usage.textContent = `频道预算占用：体积 ${utilization.bytes}% · 纹理 ${utilization.texturePixels}% · 顶点 ${utilization.renderedVertices}% · 三角形 ${utilization.renderedTriangles}%`;
+  container.append(usage);
+
+  const heaviest = [...report.lobbyAssets.heaviest, ...report.avatars.heaviest]
+    .sort((left, right) => right.bytes - left.bytes)
+    .slice(0, 6);
+  if (heaviest.length) {
+    const list = document.createElement('ul');
+    list.className = 'sunken-list';
+    list.replaceChildren(...heaviest.map((item) => {
+      const row = document.createElement('li');
+      row.textContent = `${item.name}：${reportMegabytes(item.bytes)} · 纹理 ${(item.texturePixels / 1_000_000).toFixed(1)} M 像素 · 三角形 ${item.renderedTriangles.toLocaleString('zh-CN')}`;
+      return row;
+    }));
+    container.append(list);
+  }
+
+  const adviceList = document.createElement('ul');
+  adviceList.className = 'advice-list';
+  adviceList.replaceChildren(...report.advice.map((line) => {
+    const row = document.createElement('li');
+    row.textContent = line;
+    return row;
+  }));
+  container.append(adviceList);
+}
+
+async function runAssetReport(event) {
+  event?.preventDefault?.();
+  const channel = elements.reportChannel.value.trim() || '0000';
+  elements.reportButton.disabled = true;
+  try {
+    const payload = await api(`/api/admin/dreamsea/asset-report?channel=${encodeURIComponent(channel)}`);
+    renderAssetReport(payload.report);
+  } catch (error) {
+    showToast(errorText(error, '体检失败。'), 'error');
+  } finally {
+    elements.reportButton.disabled = false;
+  }
+}
+
 function showToast(message, type = 'success') {
   const toast = document.createElement('div');
   toast.className = `toast${type === 'error' ? ' error' : ''}`;
@@ -1368,6 +1430,7 @@ elements.tabs.forEach((tab) => tab.addEventListener('click', () => {
 elements.searchInput.addEventListener('input', renderList);
 elements.patrolButton.addEventListener('click', runSinkPatrol);
 elements.calamityForm.addEventListener('submit', submitCalamity);
+elements.assetReportForm.addEventListener('submit', runAssetReport);
 elements.drawerBackdrop.addEventListener('click', () => closeDetail());
 elements.closeDetail.addEventListener('click', () => closeDetail());
 elements.detailRetry.addEventListener('click', loadDetail);

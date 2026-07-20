@@ -2053,3 +2053,46 @@ textarea::placeholder {
   font-size: 14px;
   padding: 6px 0;
 }
+
+.report-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.report-controls input {
+  width: 130px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.report-result {
+  min-height: 8px;
+  font-size: 14px;
+}
+
+.report-usage {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.advice-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.advice-list li {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--blue);
+  border-radius: 10px;
+  background: var(--blue-pale);
+  font-size: 13px;
+}

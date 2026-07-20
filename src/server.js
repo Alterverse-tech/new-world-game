@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
 import { createHash, randomUUID } from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
@@ -124,15 +125,57 @@ function publicHeaders(corsOrigin = '*') {
   };
 }
 
+// 走线压缩：JSON 与文本静态资源按需 gzip；GLB/图片/音频等已压缩格式不重复压缩
+const COMPRESSION_MIN_BYTES = 1024;
+const COMPRESSIBLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
+const COMPRESSIBLE_EXTENSIONS = new Set(['.json', '.js', '.md', '.gltf']);
+
+function requestAcceptsGzip(request) {
+  const header = request.headers['accept-encoding'];
+  return typeof header === 'string' && /(^|[,\s])gzip($|[;,\s])/i.test(header);
+}
+
+function withVary(headers, value) {
+  const existing = headers.Vary ?? headers.vary;
+  if (!existing) return { ...headers, Vary: value };
+  if (String(existing).toLowerCase().includes(value.toLowerCase())) return headers;
+  return { ...headers, Vary: `${existing}, ${value}` };
+}
+
 function sendJson(response, status, value, headers = {}) {
-  const body = Buffer.from(`${JSON.stringify(value)}\n`);
-  response.writeHead(status, {
+  let body = Buffer.from(`${JSON.stringify(value)}\n`);
+  let finalHeaders = {
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': body.length,
     'X-Content-Type-Options': 'nosniff',
     ...headers,
+  };
+  if (response.acceptGzip && body.length >= COMPRESSION_MIN_BYTES) {
+    body = gzipSync(body);
+    finalHeaders = withVary(finalHeaders, 'Accept-Encoding');
+    finalHeaders['Content-Encoding'] = 'gzip';
+  }
+  finalHeaders['Content-Length'] = body.length;
+  response.writeHead(status, finalHeaders);
+  response.end(body);
+}
+
+// 文本文件的压缩发送；不适用（HEAD/未接受/超限）时返回 false 由调用方走流式
+async function sendCompressedFileIfEligible(request, response, filePath, size, contentType, headers) {
+  if (
+    request.method !== 'GET'
+    || !response.acceptGzip
+    || size < COMPRESSION_MIN_BYTES
+    || size > COMPRESSIBLE_FILE_MAX_BYTES
+  ) return false;
+  const body = gzipSync(await readFile(filePath));
+  response.writeHead(200, {
+    ...withVary(headers, 'Accept-Encoding'),
+    'Content-Type': contentType,
+    'Content-Encoding': 'gzip',
+    'Content-Length': body.length,
   });
   response.end(body);
+  return true;
 }
 
 function sendError(response, error, logger) {
@@ -157,14 +200,18 @@ async function sendAdminAsset(request, response, pathname) {
   const filePath = path.join(ADMIN_ASSET_DIRECTORY, fileName);
   const info = await stat(filePath);
   if (!info.isFile()) throw new HttpError(404, 'not_found', 'Resource not found');
-  response.writeHead(200, {
-    'Content-Type': contentType,
-    'Content-Length': info.size,
+  const baseHeaders = {
     'Cache-Control': 'private, no-store',
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
+  };
+  if (await sendCompressedFileIfEligible(request, response, filePath, info.size, contentType, baseHeaders)) return;
+  response.writeHead(200, {
+    ...baseHeaders,
+    'Content-Type': contentType,
+    'Content-Length': info.size,
   });
   if (request.method === 'HEAD') {
     response.end();
@@ -186,12 +233,16 @@ async function sendPortalAsset(request, response, pathname) {
   const filePath = path.join(PORTAL_ASSET_DIRECTORY, fileName);
   const info = await stat(filePath);
   if (!info.isFile()) throw new HttpError(404, 'not_found', 'Resource not found');
-  response.writeHead(200, {
-    'Content-Type': contentType,
-    'Content-Length': info.size,
+  const baseHeaders = {
     'Cache-Control': 'no-cache',
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
+  };
+  if (await sendCompressedFileIfEligible(request, response, filePath, info.size, contentType, baseHeaders)) return;
+  response.writeHead(200, {
+    ...baseHeaders,
+    'Content-Type': contentType,
+    'Content-Length': info.size,
   });
   if (request.method === 'HEAD') {
     response.end();
@@ -251,7 +302,12 @@ async function sendPackageFile(request, response, store, record, requestedPath, 
   const info = await stat(resolved);
   if (!info.isFile()) throw new HttpError(404, 'not_found', 'Resource not found');
 
-  const contentType = MIME_TYPES.get(path.extname(resolved).toLowerCase()) ?? 'application/octet-stream';
+  const extension = path.extname(resolved).toLowerCase();
+  const contentType = MIME_TYPES.get(extension) ?? 'application/octet-stream';
+  if (
+    COMPRESSIBLE_EXTENSIONS.has(extension)
+    && await sendCompressedFileIfEligible(request, response, resolved, info.size, contentType, headers)
+  ) return;
   response.writeHead(200, {
     'Content-Type': contentType,
     'Content-Length': info.size,
@@ -276,11 +332,17 @@ async function sendApprovedFile(request, response, store, id, requestedPath, cor
   if (!record || record.status !== 'approved') {
     throw new HttpError(404, 'not_found', 'Resource not found');
   }
-  await sendPackageFile(request, response, store, record, requestedPath, {
+  const cacheHeaders = {
     ...publicHeaders(corsOrigin),
     'Cache-Control': 'public, max-age=31536000, immutable',
     ETag: `"${record.hash}"`,
-  });
+  };
+  if (request.headers['if-none-match'] === cacheHeaders.ETag) {
+    response.writeHead(304, cacheHeaders);
+    response.end();
+    return;
+  }
+  await sendPackageFile(request, response, store, record, requestedPath, cacheHeaders);
 }
 
 async function sendAvatarFile(request, response, avatarStore, id, corsOrigin) {
@@ -292,12 +354,20 @@ async function sendAvatarFile(request, response, avatarStore, id, corsOrigin) {
   if (!info.isFile() || info.size !== record.bytes) {
     throw new HttpError(404, 'avatar_not_found', 'Avatar was not found');
   }
-  response.writeHead(200, {
-    'Content-Type': 'model/gltf-binary',
-    'Content-Length': info.size,
+  const cacheHeaders = {
     ...publicHeaders(corsOrigin),
     'Cache-Control': 'public, max-age=31536000, immutable',
     ETag: `"${record.hash}"`,
+  };
+  if (request.headers['if-none-match'] === cacheHeaders.ETag) {
+    response.writeHead(304, cacheHeaders);
+    response.end();
+    return;
+  }
+  response.writeHead(200, {
+    'Content-Type': 'model/gltf-binary',
+    'Content-Length': info.size,
+    ...cacheHeaders,
   });
   if (request.method === 'HEAD') {
     response.end();
@@ -1572,6 +1642,109 @@ async function triggerDreamseaSinkPatrol(request, response, context) {
   sendJson(response, 200, { patrol }, { 'Cache-Control': 'private, no-store' });
 }
 
+// 资产体检：回答「加载卡顿是否因 3D 资产体积过大」——
+// 盘点 Avatar 与 GLB 梦物的体积/纹理/三角形，核算指定频道的动态首载负荷与预算占用
+const HEAVY_ASSET_BYTES = 4 * 1024 * 1024;
+const HEAVY_TEXTURE_PIXELS = 2048 * 2048;
+const HEAVY_CHANNEL_PAYLOAD_BYTES = 24 * 1024 * 1024;
+
+function assetInventory(records, { id, name }) {
+  const items = records.map((record) => ({
+    id: id(record),
+    name: name(record),
+    bytes: record.bytes ?? 0,
+    texturePixels: record.stats?.texturePixels ?? 0,
+    renderedTriangles: record.stats?.renderedTriangles ?? record.stats?.triangleCount ?? 0,
+  }));
+  return {
+    count: items.length,
+    totalBytes: items.reduce((sum, item) => sum + item.bytes, 0),
+    heaviest: [...items].sort((left, right) => right.bytes - left.bytes).slice(0, 8),
+    overweight: items.filter((item) => item.bytes > HEAVY_ASSET_BYTES || item.texturePixels > HEAVY_TEXTURE_PIXELS),
+  };
+}
+
+function megabytes(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function getDreamseaAssetReport(request, response, context) {
+  requireBearer(request, context.adminToken);
+  const url = new URL(request.url ?? '/api/admin/dreamsea/asset-report', 'http://localhost');
+  const channel = validateLobbyChannel(url.searchParams.get('channel') ?? DEFAULT_LOBBY_CHANNEL);
+
+  const avatars = assetInventory(context.avatarStore.getRegistry().avatars ?? [], {
+    id: (record) => record.avatarId,
+    name: (record) => record.name,
+  });
+  const lobbyAssets = assetInventory(context.lobbyAssetStore.listStored(), {
+    id: (record) => record.id,
+    name: (record) => record.name,
+  });
+
+  const state = await context.lobbyStore.getState(channel);
+  const dynamicIds = [...new Set(
+    (state.objects ?? [])
+      .map((object) => object.catalogId)
+      .filter((catalogId) => /^user-glb-[a-f0-9]{32}$/.test(catalogId)),
+  )];
+  const payload = { bytes: 0, texturePixels: 0, renderedVertices: 0, renderedTriangles: 0 };
+  for (const assetId of dynamicIds) {
+    const record = context.lobbyAssetStore.getStored(assetId);
+    if (!record) continue;
+    payload.bytes += record.bytes ?? 0;
+    payload.texturePixels += record.stats?.texturePixels ?? 0;
+    payload.renderedVertices += record.stats?.renderedVertices ?? 0;
+    payload.renderedTriangles += record.stats?.renderedTriangles ?? 0;
+  }
+  const budgets = LOBBY_DYNAMIC_RESOURCE_LIMITS;
+  const utilization = {
+    bytes: Math.round((payload.bytes / budgets.uniqueBytes) * 100),
+    texturePixels: Math.round((payload.texturePixels / budgets.uniqueTexturePixels) * 100),
+    renderedVertices: Math.round((payload.renderedVertices / budgets.renderedVertices) * 100),
+    renderedTriangles: Math.round((payload.renderedTriangles / budgets.renderedTriangles) * 100),
+  };
+
+  const advice = [];
+  for (const item of [...lobbyAssets.overweight, ...avatars.overweight].slice(0, 6)) {
+    advice.push(`「${item.name}」偏重：${megabytes(item.bytes)}、纹理 ${(item.texturePixels / 1_000_000).toFixed(1)} M 像素——建议压缩纹理（≤1024×1024 / KTX2）或用 Draco/meshopt 精简网格。`);
+  }
+  if (payload.bytes > HEAVY_CHANNEL_PAYLOAD_BYTES) {
+    advice.push(`频道 ${channel} 的动态梦物首载约 ${megabytes(payload.bytes)}，超过 ${megabytes(HEAVY_CHANNEL_PAYLOAD_BYTES)} 的建议值——网页加载卡顿很可能由 3D 资产体积导致，优先精简或分批加载。`);
+  }
+  for (const [key, percent] of Object.entries(utilization)) {
+    if (percent >= 80) {
+      advice.push(`频道 ${channel} 的 ${key} 预算已用 ${percent}%，接近上限，凝结新梦物可能被拒。`);
+    }
+  }
+  if (!advice.length) {
+    advice.push('3D 资产体积在预算内，不是明显的卡顿主因；若仍卡顿，优先排查客户端渲染与网络往返（本服务端已启用 JSON/文本 gzip、WS permessage-deflate 与 ETag 304 复用）。');
+  }
+
+  sendJson(response, 200, {
+    report: {
+      generatedAt: new Date(context.clock()).toISOString(),
+      avatars,
+      lobbyAssets,
+      channel: {
+        channel,
+        objects: state.objects?.length ?? 0,
+        uniqueDynamicAssets: dynamicIds.length,
+        dynamicPayload: payload,
+        budgets,
+        utilization,
+      },
+      transport: {
+        jsonGzip: true,
+        staticTextGzip: true,
+        webSocketPerMessageDeflate: true,
+        conditionalRequests: true,
+      },
+      advice,
+    },
+  }, { 'Cache-Control': 'private, no-store' });
+}
+
 async function route(request, response, context) {
   const pathname = decodePathname(request.url ?? '/');
 
@@ -1941,6 +2114,10 @@ async function route(request, response, context) {
   }
   if (request.method === 'POST' && pathname === '/api/admin/dreamsea/sink-patrol') {
     await triggerDreamseaSinkPatrol(request, response, context);
+    return;
+  }
+  if (request.method === 'GET' && pathname === '/api/admin/dreamsea/asset-report') {
+    await getDreamseaAssetReport(request, response, context);
     return;
   }
 
@@ -2389,6 +2566,7 @@ export async function createApplication(options = {}) {
     clock,
   };
   const server = http.createServer((request, response) => {
+    response.acceptGzip = requestAcceptsGzip(request);
     route(request, response, context).catch((error) => {
       if (!response.headersSent) sendError(response, error, logger);
       else response.destroy(error);

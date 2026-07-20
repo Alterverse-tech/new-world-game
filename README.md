@@ -161,6 +161,28 @@ GET /healthz   健康检查
 - `/api/worker/prop-creations/*`：worker 认领、进度、完成与发布回报
 - `/api/admin/prop-creations/*`：管理员审核（沉重律裁定）
 
+## 加载与联机性能
+
+服务端内建以下传输优化（默认开启，无需配置）：
+
+- **JSON / 文本 gzip**：所有 JSON 接口（含海图 `registry.json`、大厅状态、世界观）与文本静态资源
+  （门户/审势台的 HTML/CSS/JS、关卡包内 `.json`/`.js`/`.md`）按 `Accept-Encoding` 协商压缩
+  （≥1KB 才压缩，响应带 `Vary: Accept-Encoding`）。GLB/图片/音频等已压缩格式不重复压缩。
+- **WebSocket permessage-deflate**：多人同步协商压缩，阈值 512 字节——高频小姿态包保持明文省 CPU，
+  快照/载具等大帧压缩省带宽；无上下文保持 + 13 位窗口控制每连接内存。
+- **ETag 条件请求**：`/avatars/*`、`/levels/*` 命中 `If-None-Match` 返回 304 零字节，
+  重复进入同一梦域不再重传 3D 资产（配合一年期 `immutable` 缓存）。
+- **浮力打点收敛**：仅加载梦域主文档（`level.json`）计一次到访，静态资源请求不产生写放大。
+
+**判断「卡顿是否因 3D 资产过大」**：审势台 → 眠海运维 → **资产体检**
+（或 `GET /api/admin/dreamsea/asset-report?channel=…`，管理员令牌）。报告盘点 Avatar 与
+GLB 梦物的体积/纹理像素/三角形、给出最重条目 Top 榜、核算指定频道的动态首载负荷与
+四项预算（60MB / 16M 纹理像素 / 50 万顶点 / 50 万三角形）占用百分比，并输出结论性建议
+（超重条目建议 KTX2 纹理压缩 / Draco・meshopt 网格精简；预算内则提示优先排查客户端渲染与网络）。
+
+三维引擎客户端侧的通用建议（不在本仓库）：纹理是 GLB 体积的大头，优先 ≤1024×1024 + KTX2/BasisU；
+网格用 Draco 或 meshopt 压缩；按需分批加载频道内梦物而非一次性全量拉取。
+
 ## 数据与安全
 
 默认数据包括梦域包、审核记录、`registry.json`（海图）、大厅状态、Avatar、大厅梦物与 `dreamsea/`（图腾、旅程、念脉、浮力、梦灾）。部署与备份时必须持久化整个 `WHITEROOM_DATA_DIR`，尤其不要覆盖或删除 `lobby/`、`avatars/`、`lobby-assets/` 和 `dreamsea/`。

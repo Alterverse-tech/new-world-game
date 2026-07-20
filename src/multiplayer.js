@@ -482,7 +482,16 @@ export class MultiplayerHub {
     this.webSocketServer = new WebSocketServer({
       noServer: true,
       maxPayload: MAX_MESSAGE_BYTES,
-      perMessageDeflate: false,
+      // 标准梦时走线压缩：小于阈值的姿态包保持明文（省 CPU），
+      // 快照/载具等大帧压缩（省带宽）；无上下文保持 + 小窗口控制每连接内存
+      perMessageDeflate: {
+        threshold: 512,
+        concurrencyLimit: 8,
+        clientNoContextTakeover: true,
+        serverNoContextTakeover: true,
+        serverMaxWindowBits: 13,
+        zlibDeflateOptions: { level: 5, memLevel: 7 },
+      },
       clientTracking: false,
     });
     this.pingTimer = null;

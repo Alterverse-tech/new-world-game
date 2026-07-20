@@ -211,6 +211,20 @@
             </div>
             <ul class="calamity-list" id="calamity-list"></ul>
           </article>
+
+          <article class="dreamsea-card">
+            <div class="section-heading">
+              <div>
+                <h2>资产体检（加载性能）</h2>
+                <p>盘点 Avatar 与 GLB 梦物的体积、纹理与三角形，核算指定频道的动态首载负荷——用数据回答「卡顿是否因 3D 资产过大」。</p>
+              </div>
+              <form class="report-controls" id="asset-report-form">
+                <input id="report-channel" value="0000" aria-label="频道" />
+                <button class="secondary-button" id="report-button" type="submit">体检</button>
+              </form>
+            </div>
+            <div class="report-result" id="report-result" aria-live="polite"></div>
+          </article>
         </section>
       </main>
     </div>
