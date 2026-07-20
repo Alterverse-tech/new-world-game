@@ -1,6 +1,6 @@
 import { open, mkdir, readFile, readdir, rename, rm, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { HttpError } from './errors.js';
+import { GRAVITY_LAW_LORE, HttpError } from './errors.js';
 import { LEVEL_ID_PATTERN } from './validator.js';
 
 const VALID_STATUSES = new Set(['pending', 'approved', 'rejected']);
@@ -42,7 +42,7 @@ export async function atomicWriteJson(filePath, value, mode = 0o600) {
 }
 
 export class FileStore {
-  constructor(dataDirectory) {
+  constructor(dataDirectory, { registryFilter } = {}) {
     this.dataDirectory = path.resolve(dataDirectory);
     this.packagesDirectory = path.join(this.dataDirectory, 'packages');
     this.recordsDirectory = path.join(this.dataDirectory, 'records');
@@ -51,6 +51,8 @@ export class FileStore {
     this.registryPath = path.join(this.dataDirectory, 'registry.json');
     this.registry = { generatedAt: new Date(0).toISOString(), engineApi: '1', levels: [] };
     this.registryQueue = Promise.resolve();
+    // 浮力法则钩子：重建海图时由 DreamseaStore 过滤沉入迷失域的梦域
+    this.registryFilter = registryFilter ?? null;
   }
 
   async initialize() {
@@ -209,6 +211,7 @@ export class FileStore {
     if (record.reviewedAt) view.reviewedAt = record.reviewedAt;
     if (record.publishedAt) view.publishedAt = record.publishedAt;
     if (record.rejectionReason) view.reason = record.rejectionReason;
+    if (record.status === 'rejected') view.lore = GRAVITY_LAW_LORE;
     return view;
   }
 
@@ -244,7 +247,7 @@ export class FileStore {
   async rebuildRegistry() {
     const task = this.registryQueue.then(async () => {
       const records = await this.listRecords();
-      const levels = records
+      let levels = records
         .filter((record) => record.status === 'approved')
         .map((record) => ({
           id: record.id,
@@ -264,6 +267,7 @@ export class FileStore {
           publishedAt: record.publishedAt,
         }))
         .sort((left, right) => left.id.localeCompare(right.id));
+      if (typeof this.registryFilter === 'function') levels = this.registryFilter(levels);
       const registry = { generatedAt: new Date().toISOString(), engineApi: '1', levels };
       this.registry = registry;
       await atomicWriteJson(this.registryPath, registry, 0o644);

@@ -1,3 +1,7 @@
+// 沉重律（《眠海》第五章第三律）：内容不是被平台删除，而是潜流拒绝为它凝结。
+// 拒绝与校验失败类响应统一携带这句 lore。
+export const GRAVITY_LAW_LORE = '沉重律：过于沉重之物，浮不起来。';
+
 export class HttpError extends Error {
   constructor(status, code, message, details = undefined) {
     super(message);

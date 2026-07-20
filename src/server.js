@@ -23,9 +23,10 @@ import {
   MAX_AVATAR_BYTES,
   validateAvatarText,
 } from './avatar.js';
-import { asHttpError, HttpError } from './errors.js';
+import { asHttpError, GRAVITY_LAW_LORE, HttpError } from './errors.js';
 import { readJsonBody, readMultipartFile, readMultipartForm } from './multipart.js';
 import { FileStore } from './store.js';
+import { DreamseaStore, validateLineageHash } from './dreamsea.js';
 import {
   DEFAULT_LOBBY_CHANNEL,
   LOBBY_DYNAMIC_RESOURCE_LIMITS,
@@ -39,6 +40,7 @@ import {
   validateLobbyChannel,
   validateCreateLobbyObject,
   validateDeleteLobbyObject,
+  validateGrantPlotCoAuthor,
   validateInteractLobbyObject,
   validateObjectId,
   validatePlotId,
@@ -135,6 +137,8 @@ function sendError(response, error, logger) {
     },
   };
   if (httpError.details !== undefined) payload.error.details = httpError.details;
+  // 沉重律：内容类拒绝（过大 / 类型不符 / 校验失败）统一以世界观口径解释
+  if ([413, 415, 422].includes(httpError.status)) payload.error.lore = GRAVITY_LAW_LORE;
   sendJson(response, httpError.status, payload, { 'Cache-Control': 'no-store' });
 }
 
@@ -648,6 +652,7 @@ async function createPropCreation(request, response, context) {
     ip: requestIp(request),
     autoPublish: context.propAutoPublish,
   });
+  await recordDreamActivity(context, session.ownerId, 'wishes');
   sendPrivateLobbyJson(response, 202, {
     job: context.propCreationStore.ownerView(record),
     worker: context.propCreationStore.workerStatus(),
@@ -749,6 +754,8 @@ async function completePropCreation(request, response, context, id) {
       archiveBuffer: upload.file.buffer,
       autoPublish: context.propAutoPublish,
     });
+    const record = await context.propCreationStore.get(id);
+    if (record?.ownerId) await recordDreamActivity(context, record.ownerId, 'creations');
     sendJson(response, 200, { job }, { 'Cache-Control': 'no-store' });
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
@@ -940,6 +947,13 @@ async function uploadLevel(request, response, context) {
       fileCount: validation.fileCount,
       packageRoot,
     });
+    await recordDreamCondensation(context, {
+      hash,
+      kind: 'level',
+      ownerId: null,
+      name: result.record.manifest.name,
+      isNew: !result.deduplicated,
+    });
     sendJson(response, result.deduplicated ? 200 : 201, {
       levelId: result.record.id,
       status: result.record.status,
@@ -980,6 +994,13 @@ async function uploadAvatar(request, response, context) {
   }
   const result = await context.avatarStore.create({ ...metadata, buffer: upload.buffer });
   const record = context.avatarStore.get(result.record.avatarId);
+  await recordDreamCondensation(context, {
+    hash: record.hash,
+    kind: 'avatar',
+    ownerId: null,
+    name: record.name,
+    isNew: !result.deduplicated,
+  });
   sendJson(response, result.deduplicated ? 200 : 201, {
     avatarId: record.avatarId,
     name: record.name,
@@ -1023,6 +1044,13 @@ async function uploadAccountAvatar(request, response, context) {
       buffer: upload.file.buffer,
     });
     const record = context.avatarStore.get(result.record.avatarId);
+    await recordDreamCondensation(context, {
+      hash: record.hash,
+      kind: 'avatar',
+      ownerId: session.ownerId,
+      name: record.name,
+      isNew: !result.deduplicated,
+    });
     sendPrivateLobbyJson(response, result.deduplicated ? 200 : 201, {
       avatarId: record.avatarId,
       name: record.name,
@@ -1065,6 +1093,13 @@ async function uploadLobbyAsset(request, response, context) {
       buffer: upload.file.buffer,
     });
     context.lobbyStore.catalogIds?.add(result.record.id);
+    await recordDreamCondensation(context, {
+      hash: result.record.hash,
+      kind: 'lobby-asset',
+      ownerId,
+      name: result.record.name,
+      isNew: !result.deduplicated,
+    });
     sendPrivateLobbyJson(response, result.deduplicated ? 200 : 201, {
       asset: context.lobbyAssetStore.get(result.record.id),
       deduplicated: result.deduplicated,
@@ -1137,6 +1172,7 @@ async function createLobbyObject(request, response, context) {
   context.lobbyRateLimiter.check(`${channel}:${body.clientId}`, requestIp(request));
   const change = await context.lobbyStore.create(channel, body);
   context.lobbyEvents.publish(channel, change);
+  await recordDreamActivity(context, ownerId, 'shapes');
   sendLobbyJson(response, 201, {
     channel,
     object: change.object,
@@ -1187,7 +1223,10 @@ async function interactLobbyObject(request, response, context, rawId) {
   const clientId = ensureLobbyOwner(request, response, context);
   context.lobbyRateLimiter.check(`${channel}:${clientId}`, requestIp(request));
   const change = await context.lobbyStore.interact(channel, id, { ...submitted, clientId });
-  if (!change.replayed) context.lobbyEvents.publish(channel, change);
+  if (!change.replayed) {
+    context.lobbyEvents.publish(channel, change);
+    await recordDreamActivity(context, clientId, 'interacts');
+  }
   sendLobbyJson(response, 200, {
     channel,
     object: change.object,
@@ -1207,6 +1246,7 @@ async function claimLobbyPlot(request, response, context, rawPlotId) {
   context.lobbyRateLimiter.check(`${channel}:${ownerId}`, requestIp(request));
   const change = await context.lobbyStore.claimPlot(channel, plotId, { ...submitted, ownerId });
   context.lobbyEvents.publish(channel, change);
+  await recordDreamActivity(context, ownerId, 'anchors');
   sendLobbyJson(response, 201, {
     channel,
     plot: change.plot,
@@ -1250,6 +1290,230 @@ async function releaseLobbyPlot(request, response, context, rawPlotId) {
     updatedAt: change.updatedAt,
     serverTime: change.serverTime,
   }, context);
+}
+
+async function grantLobbyPlotCoAuthor(request, response, context, rawPlotId) {
+  requireSameOriginMutation(request);
+  const channel = lobbyChannel(request.url ?? '/api/lobby/plots');
+  const plotId = validatePlotId(rawPlotId);
+  const submitted = validateGrantPlotCoAuthor(await readJsonBody(request));
+  const ownerId = ensureLobbyOwner(request, response, context);
+  context.lobbyRateLimiter.check(`${channel}:${ownerId}`, requestIp(request));
+  const change = await context.lobbyStore.grantPlotCoAuthor(channel, plotId, {
+    ownerId,
+    coAuthorId: submitted.coAuthorId,
+  });
+  context.lobbyEvents.publish(channel, change);
+  sendLobbyJson(response, 200, {
+    channel,
+    plot: change.plot,
+    revision: change.revision,
+    updatedAt: change.updatedAt,
+    serverTime: change.serverTime,
+  }, context);
+}
+
+async function revokeLobbyPlotCoAuthor(request, response, context, rawPlotId, coAuthorId) {
+  requireSameOriginMutation(request);
+  const channel = lobbyChannel(request.url ?? '/api/lobby/plots');
+  const plotId = validatePlotId(rawPlotId);
+  const ownerId = ensureLobbyOwner(request, response, context);
+  context.lobbyRateLimiter.check(`${channel}:${ownerId}`, requestIp(request));
+  const change = await context.lobbyStore.revokePlotCoAuthor(channel, plotId, { ownerId, coAuthorId });
+  context.lobbyEvents.publish(channel, change);
+  sendLobbyJson(response, 200, {
+    channel,
+    plot: change.plot,
+    revision: change.revision,
+    updatedAt: change.updatedAt,
+    serverTime: change.serverTime,
+  }, context);
+}
+
+// ---------------------------------------------------------------------------
+// 《眠海》世界观路由
+// ---------------------------------------------------------------------------
+
+async function recordDreamActivity(context, ownerId, kind, amount = 1) {
+  try {
+    await context.dreamseaStore.recordActivity(ownerId, kind, amount);
+  } catch (error) {
+    context.logger.error?.('dreamsea activity record failed', error);
+  }
+}
+
+async function recordDreamCondensation(context, { hash, kind, ownerId, name, isNew }) {
+  try {
+    const result = await context.dreamseaStore.recordCondensation({ hash, kind, ownerId, name });
+    if (ownerId && result.isOrigin && isNew) {
+      await context.dreamseaStore.recordActivity(ownerId, 'creations');
+    } else if (ownerId && !result.isOrigin) {
+      await context.dreamseaStore.recordActivity(ownerId, 'echoes');
+    }
+    return result;
+  } catch (error) {
+    context.logger.error?.('dreamsea lineage record failed', error);
+    return null;
+  }
+}
+
+function getDreamseaWorldview(response, context) {
+  sendJson(response, 200, context.dreamseaStore.worldviewView(), {
+    ...publicHeaders(context.corsOrigin),
+    'Cache-Control': 'no-store',
+  });
+}
+
+async function getDreamseaTotem(request, response, context) {
+  const ownerId = ensureLobbyOwner(request, response, context);
+  const totem = await context.dreamseaStore.ensureTotem(ownerId);
+  sendPrivateLobbyJson(response, 200, { totem: context.dreamseaStore.totemView(totem) });
+}
+
+async function getDreamseaTotemPublic(response, context, ownerId) {
+  const totem = await context.dreamseaStore.peekTotem(ownerId);
+  if (!totem) throw new HttpError(404, 'dreamsea_totem_not_found', 'This dreamer has not condensed a totem yet');
+  sendJson(response, 200, { totem: context.dreamseaStore.blurredTotemView(totem) }, {
+    ...publicHeaders(context.corsOrigin),
+    'Cache-Control': 'no-store',
+  });
+}
+
+async function getDreamseaJourney(request, response, context) {
+  const ownerId = ensureLobbyOwner(request, response, context);
+  sendPrivateLobbyJson(response, 200, { journey: await context.dreamseaStore.journeyView(ownerId) });
+}
+
+async function getDreamseaLineage(response, context, hash) {
+  const lineage = await context.dreamseaStore.lineageView(validateLineageHash(hash));
+  if (!lineage) throw new HttpError(404, 'dreamsea_lineage_not_found', 'No condensation lineage exists for this hash');
+  sendJson(response, 200, { lineage }, {
+    ...publicHeaders(context.corsOrigin),
+    'Cache-Control': 'no-store',
+  });
+}
+
+async function grantDreamseaSeed(request, response, context) {
+  requireSameOriginMutation(request);
+  const ownerId = requireLobbyOwner(request, context);
+  const body = await readJsonBody(request);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new HttpError(422, 'invalid_seed_grant', 'A JSON object with hash and toOwnerId is required');
+  }
+  const keys = Object.keys(body);
+  if (keys.length !== 2 || !keys.includes('hash') || !keys.includes('toOwnerId')) {
+    throw new HttpError(422, 'invalid_seed_grant', 'Exactly hash and toOwnerId are required');
+  }
+  // 授出念种需要造梦师阶位（第八章：造梦师可订立域理、授出被启发的权利）
+  await context.dreamseaStore.assertRank(ownerId, 'dreamwright');
+  const { seed } = await context.dreamseaStore.grantSeed({
+    hash: body.hash,
+    byOwnerId: ownerId,
+    toOwnerId: body.toOwnerId,
+  });
+  await recordDreamActivity(context, ownerId, 'seedsGranted');
+  await recordDreamActivity(context, seed.toOwnerId, 'seedsReceived');
+  sendPrivateLobbyJson(response, 201, {
+    seed,
+    lore: '念种当面授受为敬。念脉将记其后续凝结为「承种」。',
+  });
+}
+
+async function diveDreamseaLevel(request, response, context) {
+  requireSameOriginMutation(request);
+  const ownerId = ensureLobbyOwner(request, response, context);
+  const body = await readJsonBody(request);
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+    || Object.keys(body).length !== 1 || typeof body.levelId !== 'string') {
+    throw new HttpError(422, 'invalid_dive', 'A JSON object with exactly levelId is required');
+  }
+  if (!LEVEL_ID_PATTERN.test(body.levelId)) {
+    throw new HttpError(404, 'level_not_found', 'Level was not found');
+  }
+  const record = await context.store.getRecord(body.levelId);
+  if (!record || record.status !== 'approved') {
+    throw new HttpError(404, 'level_not_found', 'Level was not found');
+  }
+  if (context.dreamseaStore.isSunken(record.id)) {
+    throw new HttpError(409, 'dreamsea_level_sunken', 'This dream domain has sunk into the lost depths', {
+      lore: '此梦域已没入迷失域。需深潜者下潜打捞，才能重新浮上明海。',
+    });
+  }
+  context.dreamseaStore.noteLevelVisit(record.id, { seedIfMissing: true });
+  await recordDreamActivity(context, ownerId, 'dives');
+  sendPrivateLobbyJson(response, 200, {
+    levelId: record.id,
+    visitedAt: new Date(context.clock()).toISOString(),
+    lore: '梦以被梦见为生。你的到访为此域续了浮力。',
+  });
+}
+
+async function runDreamseaSinkPatrol(context) {
+  const records = await context.store.listRecords();
+  const changed = context.dreamseaStore.sunkenStateChanged(records);
+  if (changed) await context.store.rebuildRegistry();
+  await context.dreamseaStore.flushBuoyancy();
+  const sunken = records
+    .filter((record) => record.status === 'approved' && context.dreamseaStore.isSunken(record.id))
+    .map((record) => record.id);
+  return {
+    changed,
+    sunken,
+    floating: records.filter((record) => record.status === 'approved').length - sunken.length,
+  };
+}
+
+async function listDreamseaAbyss(request, response, context) {
+  const ownerId = requireLobbyOwner(request, context);
+  // 梦境考古是深潜者的权限（第八章）
+  await context.dreamseaStore.assertRank(ownerId, 'deepdiver');
+  const records = await context.store.listRecords();
+  sendPrivateLobbyJson(response, 200, {
+    domains: context.dreamseaStore.abyssView(records),
+    lore: '迷失域中，失去梦主的投影仍在执行早已无意义的域理。被遗忘的杰作在海底等待重见天日。',
+  });
+}
+
+async function salvageDreamseaLevel(request, response, context, levelId) {
+  requireSameOriginMutation(request);
+  const ownerId = requireLobbyOwner(request, context);
+  await context.dreamseaStore.assertRank(ownerId, 'deepdiver');
+  if (!LEVEL_ID_PATTERN.test(levelId)) {
+    throw new HttpError(404, 'level_not_found', 'Level was not found');
+  }
+  const record = await context.store.getRecord(levelId);
+  const salvage = await context.dreamseaStore.salvageLevel(levelId, record);
+  await context.store.rebuildRegistry();
+  await recordDreamActivity(context, ownerId, 'salvages');
+  sendPrivateLobbyJson(response, 200, { salvage });
+}
+
+async function declareDreamseaCalamity(request, response, context) {
+  requireBearer(request, context.adminToken);
+  const body = await readJsonBody(request);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new HttpError(422, 'invalid_calamity', 'A JSON object is required');
+  }
+  const allowed = new Set(['title', 'note', 'channel', 'durationMs']);
+  const unexpected = Object.keys(body).filter((key) => !allowed.has(key));
+  if (unexpected.length || typeof body.title !== 'string') {
+    throw new HttpError(422, 'invalid_calamity', 'title is required; note, channel and durationMs are optional', {
+      unexpected,
+    });
+  }
+  const calamity = await context.dreamseaStore.declareCalamity({
+    title: body.title,
+    note: body.note ?? null,
+    channel: body.channel ?? null,
+    ...(body.durationMs !== undefined ? { durationMs: body.durationMs } : {}),
+  });
+  sendJson(response, 201, { calamity }, { 'Cache-Control': 'private, no-store' });
+}
+
+async function triggerDreamseaSinkPatrol(request, response, context) {
+  requireBearer(request, context.adminToken);
+  const patrol = await runDreamseaSinkPatrol(context);
+  sendJson(response, 200, { patrol }, { 'Cache-Control': 'private, no-store' });
 }
 
 async function route(request, response, context) {
@@ -1554,6 +1818,71 @@ async function route(request, response, context) {
     return;
   }
 
+  const lobbyPlotCoAuthorsMatch = /^\/api\/lobby\/plots\/([^/]+)\/coauthors$/.exec(pathname);
+  const lobbyPlotCoAuthorMatch = /^\/api\/lobby\/plots\/([^/]+)\/coauthors\/([^/]+)$/.exec(pathname);
+  if (request.method === 'POST' && lobbyPlotCoAuthorsMatch) {
+    await grantLobbyPlotCoAuthor(request, response, context, lobbyPlotCoAuthorsMatch[1]);
+    return;
+  }
+  if (request.method === 'DELETE' && lobbyPlotCoAuthorMatch) {
+    await revokeLobbyPlotCoAuthor(
+      request,
+      response,
+      context,
+      lobbyPlotCoAuthorMatch[1],
+      lobbyPlotCoAuthorMatch[2],
+    );
+    return;
+  }
+
+  if (request.method === 'GET' && pathname === '/api/dreamsea/worldview') {
+    getDreamseaWorldview(response, context);
+    return;
+  }
+  if (request.method === 'GET' && pathname === '/api/dreamsea/totem') {
+    await getDreamseaTotem(request, response, context);
+    return;
+  }
+  const dreamseaTotemMatch = /^\/api\/dreamsea\/totems\/([^/]+)$/.exec(pathname);
+  if (request.method === 'GET' && dreamseaTotemMatch) {
+    await getDreamseaTotemPublic(response, context, dreamseaTotemMatch[1]);
+    return;
+  }
+  if (request.method === 'GET' && pathname === '/api/dreamsea/journey') {
+    await getDreamseaJourney(request, response, context);
+    return;
+  }
+  const dreamseaLineageMatch = /^\/api\/dreamsea\/lineage\/([^/]+)$/.exec(pathname);
+  if (request.method === 'GET' && dreamseaLineageMatch) {
+    await getDreamseaLineage(response, context, dreamseaLineageMatch[1]);
+    return;
+  }
+  if (request.method === 'POST' && pathname === '/api/dreamsea/seeds') {
+    await grantDreamseaSeed(request, response, context);
+    return;
+  }
+  if (request.method === 'POST' && pathname === '/api/dreamsea/dive') {
+    await diveDreamseaLevel(request, response, context);
+    return;
+  }
+  if (request.method === 'GET' && pathname === '/api/dreamsea/abyss') {
+    await listDreamseaAbyss(request, response, context);
+    return;
+  }
+  const dreamseaSalvageMatch = /^\/api\/dreamsea\/abyss\/([^/]+)\/salvage$/.exec(pathname);
+  if (request.method === 'POST' && dreamseaSalvageMatch) {
+    await salvageDreamseaLevel(request, response, context, dreamseaSalvageMatch[1]);
+    return;
+  }
+  if (request.method === 'POST' && pathname === '/api/admin/dreamsea/calamities') {
+    await declareDreamseaCalamity(request, response, context);
+    return;
+  }
+  if (request.method === 'POST' && pathname === '/api/admin/dreamsea/sink-patrol') {
+    await triggerDreamseaSinkPatrol(request, response, context);
+    return;
+  }
+
   const lobbyObjectMatch = /^\/api\/lobby\/objects\/([^/]+)$/.exec(pathname);
   const lobbyInteractionMatch = /^\/api\/lobby\/objects\/([^/]+)\/interactions$/.exec(pathname);
   if (request.method === 'POST' && lobbyInteractionMatch) {
@@ -1676,6 +2005,8 @@ async function route(request, response, context) {
       staticMatch[2],
       context.corsOrigin,
     );
+    // 浮力法则：被访问的梦域获得浮力（已沉没者不因静态访问上浮，须经打捞）
+    context.dreamseaStore.noteLevelVisit(staticMatch[1]);
     return;
   }
 
@@ -1720,13 +2051,34 @@ export async function createApplication(options = {}) {
   if (typeof clock !== 'function' || !Number.isSafeInteger(clock())) {
     throw new Error('clock must return an integer Unix timestamp in milliseconds');
   }
+  const logger = options.logger ?? console;
   const dataDirectory = options.dataDirectory ?? process.env.WHITEROOM_DATA_DIR ?? path.resolve('data');
   const supabaseAuth = options.supabaseAuth ?? new SupabaseAuthVerifier({
     url: process.env.WHITEROOM_SUPABASE_URL,
     publishableKey: process.env.WHITEROOM_SUPABASE_PUBLISHABLE_KEY,
     clock,
   });
+  const dreamseaSecret = options.dreamsea?.secret
+    ?? process.env.WHITEROOM_DREAMSEA_SECRET
+    ?? createHash('sha256').update('whiteroom-dreamsea\0').update(lobbyOwnerSecret).digest();
+  const dreamseaStore = options.dreamseaStore ?? new DreamseaStore({
+    dataDirectory,
+    clock,
+    secret: dreamseaSecret,
+    sinkAfterMs: positiveIntegerSetting(
+      options.dreamsea?.sinkAfterMs ?? process.env.WHITEROOM_DREAMSEA_SINK_AFTER_MS,
+      30 * 24 * 60 * 60_000,
+      { name: 'WHITEROOM_DREAMSEA_SINK_AFTER_MS', minimum: 1_000, maximum: 3650 * 24 * 60 * 60_000 },
+    ),
+    rankThresholds: options.dreamsea?.rankThresholds,
+    logger,
+  });
+  await dreamseaStore.initialize();
   const store = options.store ?? new FileStore(dataDirectory);
+  // 浮力法则：重建海图时过滤沉没梦域（自定义 store 若已带过滤器则尊重之）
+  if (!store.registryFilter) {
+    store.registryFilter = (levels) => dreamseaStore.filterRegistryLevels(levels);
+  }
   await store.initialize();
   const propCreationStore = options.propCreationStore ?? new PropCreationStore({
     dataDirectory: store.dataDirectory ?? dataDirectory,
@@ -1946,6 +2298,8 @@ export async function createApplication(options = {}) {
   );
   const context = {
     store,
+    dreamseaStore,
+    logger,
     lobbyCatalog,
     lobbyStore,
     lobbyRateLimiter,
@@ -1971,7 +2325,6 @@ export async function createApplication(options = {}) {
     ),
     clock,
   };
-  const logger = options.logger ?? console;
   const server = http.createServer((request, response) => {
     route(request, response, context).catch((error) => {
       if (!response.headersSent) sendError(response, error, logger);
@@ -2025,19 +2378,36 @@ export async function createApplication(options = {}) {
   });
   context.multiplayerHub = multiplayerHub;
   multiplayerHub.attach(server);
+  // 沉没巡查：按浮力法则定期让久无人访的梦域没入迷失域
+  const sinkPatrolMs = positiveIntegerSetting(
+    options.dreamsea?.sinkPatrolMs ?? process.env.WHITEROOM_DREAMSEA_SINK_PATROL_MS,
+    10 * 60_000,
+    { name: 'WHITEROOM_DREAMSEA_SINK_PATROL_MS', minimum: 1_000, maximum: 24 * 60 * 60_000 },
+  );
+  const sinkPatrolTimer = setInterval(() => {
+    runDreamseaSinkPatrol(context).catch((error) => {
+      logger.error('dreamsea sink patrol failed', error);
+    });
+  }, sinkPatrolMs);
+  sinkPatrolTimer.unref?.();
   const closeHttpServer = server.close.bind(server);
   server.close = (callback) => {
+    clearInterval(sinkPatrolTimer);
+    dreamseaStore.close();
     multiplayerHub.close();
     lobbyEvents.close();
     return closeHttpServer(callback);
   };
   server.once('close', () => {
+    clearInterval(sinkPatrolTimer);
+    dreamseaStore.close();
     lobbyEvents.close();
     multiplayerHub.close();
   });
   return {
     server,
     store,
+    dreamseaStore,
     lobbyStore,
     lobbyEvents,
     lobbyAssetStore,
@@ -2057,7 +2427,7 @@ export async function startServer(options = {}) {
     application.server.listen(port, host, resolve);
   });
   const address = application.server.address();
-  console.log(`WhiteRoom platform listening on http://${host}:${address.port}`);
+  console.log(`《眠海》(WhiteRoom) platform listening on http://${host}:${address.port}`);
   return application;
 }
 

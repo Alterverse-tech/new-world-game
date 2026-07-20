@@ -909,6 +909,7 @@ test('home plot claims support multiple plots per owner while staying channel-is
       ownerNickname: 'Alice 房主',
       claimedAt: claimed.updatedAt,
       updatedAt: claimed.updatedAt,
+      coAuthors: [],
     });
     assert.equal(claimed.serverTime, claimed.updatedAt);
 

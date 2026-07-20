@@ -166,7 +166,9 @@ const STORED_OBJECT_FIELDS = new Set([
   'interaction',
   'plotId',
 ]);
-const STORED_PLOT_FIELDS = new Set(['id', 'ownerId', 'ownerNickname', 'claimedAt', 'updatedAt']);
+const STORED_PLOT_FIELDS = new Set(['id', 'ownerId', 'ownerNickname', 'claimedAt', 'updatedAt', 'coAuthors']);
+// 共笔权（《眠海》第七章）：梦主可将域内创作权授予至多 4 位访客
+export const MAX_PLOT_CO_AUTHORS = 4;
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -344,6 +346,14 @@ export function validateUpdateLobbyPlot(value) {
     'request body',
   );
   return { ownerNickname: sanitizeOwnerNickname(value.nickname) };
+}
+
+export function validateGrantPlotCoAuthor(value) {
+  requireExactKeys(value, new Set(['coAuthorId']), ['coAuthorId'], 'co-author grant');
+  if (!LOBBY_OWNER_ID_PATTERN.test(value.coAuthorId ?? '')) {
+    throw new HttpError(422, 'invalid_co_author', 'coAuthorId must be a valid owner ID');
+  }
+  return { coAuthorId: value.coAuthorId.toLowerCase() };
 }
 
 export function validateReleaseLobbyPlot(value) {
@@ -544,11 +554,22 @@ function validStoredObject(object, stateRevision, catalogIds, channel = DEFAULT_
   }
 }
 
+function validStoredPlotCoAuthors(plot) {
+  if (!Object.hasOwn(plot, 'coAuthors')) return true;
+  const coAuthors = plot.coAuthors;
+  if (!Array.isArray(coAuthors) || coAuthors.length > MAX_PLOT_CO_AUTHORS) return false;
+  if (new Set(coAuthors).size !== coAuthors.length) return false;
+  return coAuthors.every((coAuthor) => (
+    LOBBY_OWNER_ID_PATTERN.test(coAuthor ?? '') && coAuthor !== plot.ownerId
+  ));
+}
+
 function validStoredPlot(plot) {
   if (!isPlainObject(plot) || !PLOT_SLOT_BY_ID.has(plot.id)) return false;
   if (!LOBBY_OWNER_ID_PATTERN.test(plot.ownerId ?? '')) return false;
   if (!isoTimestamp(plot.claimedAt) || !isoTimestamp(plot.updatedAt)) return false;
   if (Date.parse(plot.updatedAt) < Date.parse(plot.claimedAt)) return false;
+  if (!validStoredPlotCoAuthors(plot)) return false;
   try {
     return sanitizeOwnerNickname(plot.ownerNickname) === plot.ownerNickname;
   } catch {
@@ -593,6 +614,7 @@ function normalizedStoredPlot(plot) {
     ownerNickname: plot.ownerNickname,
     claimedAt: plot.claimedAt,
     updatedAt: plot.updatedAt,
+    coAuthors: Array.isArray(plot.coAuthors) ? [...plot.coAuthors] : [],
   };
 }
 
@@ -1099,13 +1121,14 @@ export class LobbyStore {
     return state.plots.find((plot) => plot.id === plotId);
   }
 
-  requirePlotOwner(state, plotId, ownerId) {
+  // 共笔权：梦主与受共笔的访客都可在此地块内凝结、调整与移除梦物
+  requirePlotAccess(state, plotId, ownerId) {
     const plot = this.plotClaim(state, plotId);
-    if (!plot || plot.ownerId !== ownerId) {
+    if (!plot || (plot.ownerId !== ownerId && !(plot.coAuthors ?? []).includes(ownerId))) {
       throw new HttpError(
         403,
         'lobby_plot_permission_denied',
-        'Only the home plot owner may change objects in this plot',
+        'Only the home plot owner or an invited co-author may change objects in this plot',
       );
     }
     return plot;
@@ -1217,7 +1240,7 @@ export class LobbyStore {
       const plotId = isPersistentSpaceChannel(channelState.channel)
         ? null
         : classifyLobbyPosition(position);
-      if (plotId) this.requirePlotOwner(channelState.state, plotId, input.clientId);
+      if (plotId) this.requirePlotAccess(channelState.state, plotId, input.clientId);
       const createdAt = this.now();
       const object = {
         id,
@@ -1255,7 +1278,7 @@ export class LobbyStore {
       }
       const persistentSpace = isPersistentSpaceChannel(channelState.channel);
       if (!persistentSpace && existing.plotId) {
-        this.requirePlotOwner(channelState.state, existing.plotId, input.clientId);
+        this.requirePlotAccess(channelState.state, existing.plotId, input.clientId);
       }
       const position = Object.hasOwn(input, 'position')
         ? validatePosition(input.position, { channel: channelState.channel })
@@ -1265,7 +1288,7 @@ export class LobbyStore {
         : position
           ? classifyLobbyPosition(position)
           : existing.plotId;
-      if (targetPlotId) this.requirePlotOwner(channelState.state, targetPlotId, input.clientId);
+      if (targetPlotId) this.requirePlotAccess(channelState.state, targetPlotId, input.clientId);
       const object = {
         ...existing,
         ...(position ? { position } : {}),
@@ -1347,7 +1370,7 @@ export class LobbyStore {
       if (isForbiddenCatalogId(existing.catalogId)) {
         throw new HttpError(403, 'protected_lobby_item', 'Computer and system objects cannot be moved or removed');
       }
-      if (existing.plotId) this.requirePlotOwner(channelState.state, existing.plotId, input.clientId);
+      if (existing.plotId) this.requirePlotAccess(channelState.state, existing.plotId, input.clientId);
       const objects = channelState.state.objects.filter((object) => object.id !== id);
       return this.commit(channelState, {
         type: 'object.deleted',
@@ -1392,6 +1415,7 @@ export class LobbyStore {
         ownerNickname: input.ownerNickname,
         claimedAt: null,
         updatedAt: null,
+        coAuthors: [],
       };
       return this.commit(channelState, {
         type: 'plot.claimed',
@@ -1418,6 +1442,74 @@ export class LobbyStore {
       return this.commit(channelState, {
         type: 'plot.updated',
         actor: input.ownerId,
+        plots,
+        changedPlot: plot,
+      });
+    });
+  }
+
+  // 共笔权授予（《眠海》第七章）：梦主在场时可将域内创作权授予访客
+  grantPlotCoAuthor(channel, plotId, { ownerId, coAuthorId }) {
+    if (isPersistentSpaceChannel(channel)) {
+      throw new HttpError(403, 'persistent_space_plots_disabled', 'Persistent spaces do not have private home plots');
+    }
+    const safePlotId = validatePlotId(plotId);
+    return this.enqueue(channel, async (channelState) => {
+      const existing = this.plotClaim(channelState.state, safePlotId);
+      if (!existing) throw new HttpError(404, 'lobby_plot_claim_not_found', 'Lobby plot claim was not found');
+      if (existing.ownerId !== ownerId) {
+        throw new HttpError(403, 'lobby_plot_permission_denied', 'Only the home plot owner may grant co-dreaming rights');
+      }
+      if (coAuthorId === existing.ownerId) {
+        throw new HttpError(422, 'invalid_co_author', 'The plot owner already holds every right to this plot');
+      }
+      const coAuthors = existing.coAuthors ?? [];
+      if (coAuthors.includes(coAuthorId)) {
+        throw new HttpError(409, 'lobby_plot_co_author_exists', 'This dreamer already holds co-dreaming rights');
+      }
+      if (coAuthors.length >= MAX_PLOT_CO_AUTHORS) {
+        throw new HttpError(
+          409,
+          'lobby_plot_co_author_limit',
+          `A home plot cannot grant co-dreaming rights to more than ${MAX_PLOT_CO_AUTHORS} dreamers`,
+        );
+      }
+      const plot = { ...existing, coAuthors: [...coAuthors, coAuthorId] };
+      const plots = channelState.state.plots.map((candidate) => candidate.id === safePlotId ? plot : candidate);
+      return this.commit(channelState, {
+        type: 'plot.updated',
+        actor: ownerId,
+        plots,
+        changedPlot: plot,
+      });
+    });
+  }
+
+  // 撤回共笔：梦主可随时撤回；受共笔者也可自行退出
+  revokePlotCoAuthor(channel, plotId, { ownerId, coAuthorId }) {
+    if (isPersistentSpaceChannel(channel)) {
+      throw new HttpError(403, 'persistent_space_plots_disabled', 'Persistent spaces do not have private home plots');
+    }
+    const safePlotId = validatePlotId(plotId);
+    if (!LOBBY_OWNER_ID_PATTERN.test(coAuthorId ?? '')) {
+      throw new HttpError(422, 'invalid_co_author', 'coAuthorId must be a valid owner ID');
+    }
+    const safeCoAuthorId = coAuthorId.toLowerCase();
+    return this.enqueue(channel, async (channelState) => {
+      const existing = this.plotClaim(channelState.state, safePlotId);
+      if (!existing) throw new HttpError(404, 'lobby_plot_claim_not_found', 'Lobby plot claim was not found');
+      if (existing.ownerId !== ownerId && safeCoAuthorId !== ownerId) {
+        throw new HttpError(403, 'lobby_plot_permission_denied', 'Only the home plot owner or the co-author may revoke co-dreaming rights');
+      }
+      const coAuthors = existing.coAuthors ?? [];
+      if (!coAuthors.includes(safeCoAuthorId)) {
+        throw new HttpError(404, 'lobby_plot_co_author_not_found', 'This dreamer does not hold co-dreaming rights');
+      }
+      const plot = { ...existing, coAuthors: coAuthors.filter((candidate) => candidate !== safeCoAuthorId) };
+      const plots = channelState.state.plots.map((candidate) => candidate.id === safePlotId ? plot : candidate);
+      return this.commit(channelState, {
+        type: 'plot.updated',
+        actor: ownerId,
         plots,
         changedPlot: plot,
       });
