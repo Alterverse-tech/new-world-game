@@ -199,11 +199,25 @@ npm test
 
 测试覆盖鉴权、梦域审核、持久化、多频道大厅、SSE、多人同步、Avatar、GLB 安全校验、权限和容量限制，以及眠海层：图腾确定性与失焦视图、阶位进阶与深度门槛、念脉/回响/念种、浮力法则下沉与打捞、共笔权授予/撤回、梦灾声明与消散、沉重律 lore。
 
-## 部署提醒
+## 部署
 
-- 使用 Nginx 或负载均衡器终止 TLS，并正确转发 SSE 与 WebSocket。
+仓库自带完整部署套件（`deploy/` 与根目录）：
+
+| 文件 | 用途 |
+| --- | --- |
+| `Dockerfile` + `docker-compose.yml` | 容器化部署：`cp deploy/env.example .env` 填入令牌后 `docker compose up -d --build`；含健康检查与持久卷 |
+| `deploy/whiteroom.service` | 裸机/EC2 systemd 单元（含安装步骤注释与安全加固） |
+| `deploy/env.example` | 生产环境变量样例（复制为 `.env` 或 `/etc/whiteroom/env`） |
+| `deploy/nginx.conf` | 反向代理样例：TLS 终止、48MB 上传上限、SSE 关缓冲、WebSocket 升级 |
+| `deploy/deploy.sh` | 单机一键部署：拉取指定 ref → `npm ci` → 测试 → 重启 → 健康检查 |
+| `.github/workflows/deploy.yml` | CI/CD：push main 自动测试+部署（配置 `DEPLOY_HOST`/`DEPLOY_USER`/`DEPLOY_SSH_KEY` 三个 Actions secrets 后生效；未配置时仅跑测试） |
+
+### 部署提醒
+
+- 使用 Nginx 或负载均衡器终止 TLS，并正确转发 SSE 与 WebSocket（见 `deploy/nginx.conf`）。
 - 审核后台和预览 API 保持同源；管理员令牌不要写入 URL、日志或浏览器存储。
-- 根据上传文件上限配置反向代理请求体大小，并关闭 SSE 响应缓冲。
+- 根据上传文件上限配置反向代理请求体大小（≥48MB），并关闭 SSE 响应缓冲。
+- 应用层已做 gzip（带 `Vary`），反向代理无需二次压缩。
 - 单机共享文件系统可使用当前实现；跨主机扩容应改用集中式数据库、对象存储和分布式锁。
 
 ## License

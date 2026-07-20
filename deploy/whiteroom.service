@@ -1,0 +1,40 @@
+# 《眠海》平台 systemd 单元（裸机/EC2 部署用）
+# 安装：
+#   sudo useradd --system --home /opt/whiteroom --shell /usr/sbin/nologin whiteroom
+#   sudo mkdir -p /var/lib/whiteroom /etc/whiteroom
+#   sudo cp deploy/env.example /etc/whiteroom/env && sudo chmod 600 /etc/whiteroom/env  # 填入真实令牌
+#   sudo chown -R whiteroom:whiteroom /var/lib/whiteroom /opt/whiteroom
+#   sudo cp deploy/whiteroom.service /etc/systemd/system/whiteroom.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now whiteroom
+
+[Unit]
+Description=DreamSea (WhiteRoom) platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=whiteroom
+Group=whiteroom
+WorkingDirectory=/opt/whiteroom/app
+EnvironmentFile=/etc/whiteroom/env
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+Environment=WHITEROOM_DATA_DIR=/var/lib/whiteroom
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=3
+
+# 加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/whiteroom
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

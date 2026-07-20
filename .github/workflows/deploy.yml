@@ -1,0 +1,60 @@
+# 生产部署：手动触发（workflow_dispatch）或推送到 main 时自动执行。
+# 需要在仓库 Settings → Secrets and variables → Actions 配置：
+#   DEPLOY_HOST  生产主机地址（如 ec2-xx.compute.amazonaws.com）
+#   DEPLOY_USER  SSH 用户（如 ubuntu）
+#   DEPLOY_SSH_KEY  对应私钥（PEM 全文）
+# 未配置密钥时，部署任务会自动跳过（仅跑测试）。
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 要部署的分支/标签/提交
+        required: false
+        default: main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check deploy secrets
+        id: gate
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -n "$DEPLOY_HOST" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::未配置 DEPLOY_* secrets，跳过部署步骤。"
+          fi
+      - name: Deploy over SSH
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          TARGET_REF: ${{ inputs.ref || 'main' }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd /opt/whiteroom/app && ./deploy/deploy.sh '$TARGET_REF'"

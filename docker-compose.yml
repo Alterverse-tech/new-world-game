@@ -1,0 +1,26 @@
+# 《眠海》平台生产编排
+# 用法：
+#   1. cp deploy/env.example .env 并填入真实令牌
+#   2. docker compose up -d --build
+services:
+  whiteroom:
+    build: .
+    image: whiteroom-platform:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      WHITEROOM_DATA_DIR: /var/lib/whiteroom
+    volumes:
+      - whiteroom-data:/var/lib/whiteroom
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  whiteroom-data:
