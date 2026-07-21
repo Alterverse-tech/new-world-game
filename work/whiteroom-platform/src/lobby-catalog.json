@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "code-anime-badminton-court",
+      "name": "动漫羽球小赛场",
+      "category": "运动场景",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "anime-badminton-court"
+    }
+  ]
+}

@@ -25,7 +25,7 @@ export const LOBBY_ASSET_BUDGETS = Object.freeze({
   images: 16,
   samplers: 16,
   scenes: 8,
-  animations: 0,
+  animations: 32,
   skins: 0,
   joints: 0,
   vertices: 100_000,

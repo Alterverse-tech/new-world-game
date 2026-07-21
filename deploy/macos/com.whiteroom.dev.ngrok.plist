@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.whiteroom.dev.ngrok</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/ngrok</string>
+    <string>http</string>
+    <string>http://127.0.0.1:4174</string>
+    <string>--url</string>
+    <string>https://handcart-stroller-flop.ngrok-free.dev</string>
+    <string>--log</string>
+    <string>stdout</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HTTP_PROXY</key>
+    <string></string>
+    <key>HTTPS_PROXY</key>
+    <string></string>
+    <key>ALL_PROXY</key>
+    <string></string>
+    <key>http_proxy</key>
+    <string></string>
+    <key>https_proxy</key>
+    <string></string>
+    <key>all_proxy</key>
+    <string></string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/Users/cppeng/Downloads/project/new-world-game/var/log/whiteroom-ngrok.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/cppeng/Downloads/project/new-world-game/var/log/whiteroom-ngrok-error.log</string>
+</dict>
+</plist>

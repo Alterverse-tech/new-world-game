@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.whiteroom.dev.backend</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/cppeng/.nvm/versions/node/v24.14.1/bin/node</string>
+    <string>--env-file=.env.local</string>
+    <string>src/server.js</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/cppeng/Downloads/project/new-world-game</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOST</key>
+    <string>127.0.0.1</string>
+    <key>PORT</key>
+    <string>8787</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/Users/cppeng/Downloads/project/new-world-game/var/log/whiteroom-backend.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/cppeng/Downloads/project/new-world-game/var/log/whiteroom-backend-error.log</string>
+</dict>
+</plist>

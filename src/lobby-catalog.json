@@ -2,6 +2,14 @@
   "schemaVersion": 1,
   "items": [
     {
+      "id": "code-anime-badminton-court",
+      "name": "动漫羽球小赛场",
+      "category": "运动场景",
+      "kind": "code",
+      "code": "anime-badminton-court",
+      "defaultScale": 1
+    },
+    {
       "id": "code-celestial-riding-dragon",
       "name": "云海御空巨龙",
       "category": "空间地标",

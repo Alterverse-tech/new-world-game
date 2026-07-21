@@ -1,0 +1,56 @@
+#!/bin/bash
+set -euo pipefail
+
+repo="/Users/cppeng/Downloads/project/new-world-game"
+public_url="https://handcart-stroller-flop.ngrok-free.dev/whiteroom-dev"
+labels=(
+  com.whiteroom.dev.backend
+  com.whiteroom.dev.game
+  com.whiteroom.dev.ngrok
+)
+
+restart_services() {
+  for label in "${labels[@]}"; do
+    /bin/launchctl asuser 501 /bin/launchctl kickstart -k "gui/501/$label"
+  done
+}
+
+show_status() {
+  for label in "${labels[@]}"; do
+    echo "$label"
+    /bin/launchctl asuser 501 /bin/launchctl print "gui/501/$label" 2>/dev/null \
+      | /usr/bin/sed -n -E '/state =|pid =|last exit code =/p' \
+      || echo "  not loaded"
+  done
+  echo "public: $public_url"
+}
+
+case "${1:-}" in
+  status)
+    show_status
+    ;;
+  restart)
+    restart_services
+    show_status
+    ;;
+  pull)
+    /usr/bin/sudo -H -u cppeng /usr/bin/git -C "$repo" pull --ff-only
+    ;;
+  deploy)
+    /usr/bin/sudo -H -u cppeng /usr/bin/git -C "$repo" pull --ff-only
+    restart_services
+    show_status
+    ;;
+  logs)
+    /usr/bin/tail -n 120 "$repo"/var/log/whiteroom-*.log
+    ;;
+  doctor)
+    /usr/bin/curl -fsS --max-time 5 http://127.0.0.1:4174/api/auth/config
+    echo
+    /usr/bin/curl -fsSI --max-time 12 "$public_url" | /usr/bin/sed -n '1,12p'
+    ;;
+  *)
+    echo "Usage: sudo whiteroom-team-admin {status|restart|pull|deploy|logs|doctor}" >&2
+    exit 2
+    ;;
+esac

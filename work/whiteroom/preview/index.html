@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#11162f" />
+    <title>动漫羽球小赛场 · WhiteRoom 预览</title>
+    <link rel="stylesheet" href="/preview/styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/node_modules/three/build/three.module.js",
+          "three/addons/": "/node_modules/three/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main class="preview-shell">
+      <canvas id="scene" aria-label="动漫羽毛球场三维预览"></canvas>
+
+      <header class="title-card glass-panel">
+        <div class="eyebrow"><span class="pulse-dot"></span> WHITE ROOM · CODE PROP</div>
+        <h1>动漫羽球小赛场</h1>
+        <p>迷你球场、动漫运动员、球拍与动态羽毛球</p>
+      </header>
+
+      <aside class="detail-card glass-panel" aria-label="物件信息">
+        <div class="detail-heading">物件信息</div>
+        <dl>
+          <div><dt>ID</dt><dd>code-anime-badminton-court</dd></div>
+          <div><dt>路线</dt><dd><span class="route-pill">Three.js Code</span></dd></div>
+          <div><dt>尺寸</dt><dd id="dimensions">读取中…</dd></div>
+          <div><dt>网格</dt><dd id="mesh-count">读取中…</dd></div>
+        </dl>
+      </aside>
+
+      <nav class="control-dock glass-panel" aria-label="预览控制">
+        <button id="reset-view" type="button">
+          <span aria-hidden="true">↗</span>
+          重置镜头
+        </button>
+        <button id="toggle-animation" class="active" type="button" aria-pressed="true">
+          <span class="button-indicator" aria-hidden="true"></span>
+          动画开启
+        </button>
+        <button id="toggle-rotate" type="button" aria-pressed="false">
+          <span aria-hidden="true">⟳</span>
+          自动环绕
+        </button>
+      </nav>
+
+      <div class="gesture-tip" aria-hidden="true">
+        <span>拖动旋转</span><i></i><span>滚轮缩放</span><i></i><span>右键平移</span>
+      </div>
+
+      <div id="loading" class="loading-state" role="status">
+        <span class="loading-shuttle">◒</span>
+        正在凝结球场…
+      </div>
+    </main>
+    <script type="module" src="/preview/main.js"></script>
+  </body>
+</html>

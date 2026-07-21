@@ -1,0 +1,31 @@
+{
+  "schema": "wr-level",
+  "schemaVersion": 1,
+  "engineApi": "1",
+  "id": "white-room-level-000000",
+  "name": "未命名关卡",
+  "version": "1.0.0",
+  "author": {
+    "name": "WhiteRoom Creator"
+  },
+  "description": "一座由光、影与几何构成的可完成空间。",
+  "language": "zh-CN",
+  "type": "reach_zone",
+  "winCondition": {
+    "type": "reach_zone"
+  },
+  "objective": "抵达尽头的青色光门",
+  "difficulty": 2,
+  "estimatedMinutes": 3,
+  "spawn": {
+    "position": [0, 1.6, 8],
+    "yawDeg": 180
+  },
+  "door": null,
+  "killY": -20,
+  "entry": "main.js",
+  "cover": "cover.png",
+  "tags": ["几何", "探索"],
+  "contentRating": "everyone",
+  "credits": []
+}

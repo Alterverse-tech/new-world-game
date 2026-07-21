@@ -1,0 +1,4 @@
+interface:
+  display_name: "WhiteRoom 大厅物件"
+  short_description: "创建、校验并安全发布 WhiteRoom 大厅物件与载具"
+  default_prompt: "Use $whiteroom-lobby-prop to create, validate, and safely publish a WhiteRoom lobby prop or drivable vehicle."
