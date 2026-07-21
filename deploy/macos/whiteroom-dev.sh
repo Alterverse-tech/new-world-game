@@ -10,7 +10,14 @@ labels=(
   com.whiteroom.dev.ngrok
 )
 
+patch_game() {
+  if [[ -f "$repo/tmp/whiteroom-game/index.html" ]]; then
+    node "$repo/deploy/macos/patch-whiteroom-game.mjs"
+  fi
+}
+
 install_agents() {
+  patch_game
   mkdir -p "$agent_dir" "$repo/var/log"
   for label in "${labels[@]}"; do
     source_plist="$repo/deploy/macos/$label.plist"
@@ -28,6 +35,7 @@ stop_agents() {
 }
 
 restart_agents() {
+  patch_game
   for label in "${labels[@]}"; do
     launchctl kickstart -k "$domain/$label"
   done
