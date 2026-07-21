@@ -56,7 +56,7 @@ import {
   LOBBY_ASSET_ID_PATTERN,
   MAX_LOBBY_ASSET_BYTES,
 } from './lobby-assets.js';
-import { MultiplayerHub } from './multiplayer.js';
+import { createIpPlayerCountryResolver, MultiplayerHub } from './multiplayer.js';
 import {
   MAX_PROP_ARTIFACT_BYTES,
   MAX_PROP_PROMPT_CHARACTERS,
@@ -2580,6 +2580,12 @@ export async function createApplication(options = {}) {
     lobbyStore,
     lobbyCatalog,
     clock,
+    playerCountryResolver: options.multiplayerPlayerCountryResolver
+      ?? createIpPlayerCountryResolver({
+        localCountry: options.multiplayerLocalPlayerCountry
+          ?? process.env.WHITEROOM_LOCAL_PLAYER_COUNTRY
+          ?? (process.env.NODE_ENV === 'production' ? 'Local' : 'China'),
+      }),
     maxTotal: positiveIntegerSetting(
       options.multiplayerLimits?.maxTotal ?? process.env.WHITEROOM_MULTIPLAYER_MAX_TOTAL,
       200,

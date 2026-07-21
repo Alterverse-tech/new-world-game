@@ -18,6 +18,8 @@
     <string>127.0.0.1</string>
     <key>PORT</key>
     <string>8787</string>
+    <key>WHITEROOM_LOCAL_PLAYER_COUNTRY</key>
+    <string>China</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

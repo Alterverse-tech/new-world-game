@@ -8,6 +8,7 @@ import { WebSocket } from 'ws';
 import { MAX_AVATAR_BYTES } from '../src/avatar.js';
 import { validateLobbyAssetGlb } from '../src/lobby-assets.js';
 import { createApplication } from '../src/server.js';
+import { createIpPlayerCountryResolver } from '../src/multiplayer.js';
 
 const UPLOAD_TOKEN = 'upload-token-for-avatar-tests';
 const ADMIN_TOKEN = 'admin-token-for-avatar-tests';
@@ -2247,6 +2248,77 @@ test('WebSocket pose/profile/total-message rates, strict pose bounds, and 1 KB p
     for (const client of clients) client.close();
     await harness.close();
   }
+});
+
+test('WebSocket shares per-player status, RTT, FPS, and region telemetry', async () => {
+  let now = Date.parse('2026-07-21T12:00:00.000Z');
+  const harness = await createHarness({
+    clock: () => now,
+    multiplayerPlayerCountryResolver: async () => 'China',
+  });
+  const clients = [];
+  try {
+    const alice = await connect(harness, 'telemetry-alice', { name: 'Alice' });
+    const bob = await connect(harness, 'telemetry-bob-01', { name: 'Bob' });
+    clients.push(alice, bob);
+    await alice.next((message) => message.type === 'welcome');
+    await bob.next((message) => message.type === 'welcome');
+
+    alice.send({ type: 'telemetry_ping', nonce: 7 });
+    const pong = await alice.next((message) => message.type === 'telemetry_pong');
+    assert.equal(pong.nonce, 7);
+    assert.equal(pong.serverTime, now);
+    alice.send({ type: 'telemetry', fps: 59, rttMs: 42, state: 'moving', region: 'China' });
+    const telemetry = await bob.next((message) => message.type === 'telemetry' && message.fps === 59);
+    assert.deepEqual(
+      {
+        id: telemetry.id,
+        fps: telemetry.fps,
+        rttMs: telemetry.rttMs,
+        state: telemetry.state,
+        region: telemetry.region,
+      },
+      { id: 'telemetry-alice', fps: 59, rttMs: 42, state: 'moving', region: 'China' },
+    );
+
+    now += 1_000;
+    const carol = await connect(harness, 'telemetry-carol', { name: 'Carol' });
+    clients.push(carol);
+    const welcome = await carol.next((message) => message.type === 'welcome');
+    const aliceSnapshot = welcome.players.find((player) => player.id === 'telemetry-alice');
+    assert.deepEqual(
+      aliceSnapshot.telemetry,
+      {
+        fps: 59,
+        rttMs: 42,
+        state: 'moving',
+        region: 'China',
+        updatedAt: Date.parse('2026-07-21T12:00:00.000Z'),
+      },
+    );
+  } finally {
+    for (const client of clients) client.close();
+    await harness.close();
+  }
+});
+
+test('IP country resolver requests only an English country and caches the result', async () => {
+  const requests = [];
+  const resolver = createIpPlayerCountryResolver({
+    fetchImpl: async (url) => {
+      requests.push(url);
+      return {
+        ok: true,
+        async json() {
+          return { success: true, country: 'United States' };
+        },
+      };
+    },
+  });
+  assert.equal(await resolver('8.8.8.8'), 'United States');
+  assert.equal(await resolver('8.8.8.8'), 'United States');
+  assert.equal(requests.length, 1);
+  assert.match(requests[0], /fields=success,country&lang=en$/);
 });
 
 test('WebSocket requires same Origin, enforces per-IP/total caps, and rejects duplicate live client IDs', async (t) => {

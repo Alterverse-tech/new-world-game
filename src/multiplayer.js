@@ -1,5 +1,6 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { randomUUID } from 'node:crypto';
+import net from 'node:net';
 import { AVATAR_ID_PATTERN, validateAvatarText } from './avatar.js';
 import { HttpError } from './errors.js';
 import {
@@ -67,6 +68,14 @@ const LOBBY_OBJECT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$/;
 const VEHICLE_LEASE_ID_PATTERN = /^lease-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const POSE_KEYS = new Set(['type', 'x', 'y', 'z', 'yaw', 'moving']);
 const PROFILE_KEYS = new Set(['type', 'name', 'avatarId']);
+const TELEMETRY_PING_KEYS = new Set(['type', 'nonce']);
+const TELEMETRY_V1_KEYS = new Set(['type', 'fps', 'rttMs', 'state']);
+const TELEMETRY_KEYS = new Set(['type', 'fps', 'rttMs', 'state', 'region']);
+const TELEMETRY_STATES = new Set(['online', 'moving', 'driving', 'playing', 'away']);
+const TELEMETRY_MIN_INTERVAL_MS = 750;
+const PLAYER_COUNTRY_CACHE_TTL_MS = 24 * 60 * 60_000;
+const PLAYER_COUNTRY_FAILURE_CACHE_TTL_MS = 5 * 60_000;
+const PLAYER_COUNTRY_LOOKUP_TIMEOUT_MS = 2_500;
 const PARTY_CREATE_KEYS = new Set(['type', 'levelId', 'levelVersion']);
 const PARTY_RESPOND_KEYS = new Set(['type', 'partyId', 'accept', 'levelVersion']);
 const PARTY_CANCEL_KEYS = new Set(['type', 'partyId']);
@@ -155,6 +164,119 @@ function validateAvatarId(value, { allowEmpty = false } = {}) {
     throw new HttpError(422, 'invalid_avatar_id', 'avatarId must be a safe uploaded avatar ID or null');
   }
   return value;
+}
+
+function validateTelemetryInteger(value, field, maximum) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > maximum) {
+    throw new HttpError(422, 'invalid_multiplayer_telemetry', field + ' is invalid');
+  }
+  return value;
+}
+
+function validatePlayerRegion(value) {
+  if (typeof value !== 'string') {
+    throw new HttpError(422, 'invalid_multiplayer_telemetry', 'region is invalid');
+  }
+  const region = value.normalize('NFKC').trim().replace(/\s+/gu, ' ');
+  if (!region || [...region].length > 40 || /[\u0000-\u001f\u007f]/u.test(region)) {
+    throw new HttpError(422, 'invalid_multiplayer_telemetry', 'region is invalid');
+  }
+  return region;
+}
+
+function normalizedCountry(value) {
+  if (typeof value !== 'string') return '';
+  return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').slice(0, 40);
+}
+
+function isLocalIp(ip) {
+  if (ip === '127.0.0.1' || ip === '::1') return true;
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    return a === 10
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168)
+      || (a === 169 && b === 254);
+  }
+  const lower = ip.toLowerCase();
+  return lower.startsWith('fc')
+    || lower.startsWith('fd')
+    || /^fe[89ab]/u.test(lower);
+}
+
+function isPublicIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b, c] = ip.split('.').map(Number);
+    return !(
+      isLocalIp(ip)
+      || a === 0
+      || a === 127
+      || a >= 224
+      || (a === 100 && b >= 64 && b <= 127)
+      || (a === 192 && b === 0 && (c === 0 || c === 2))
+      || (a === 198 && (b === 18 || b === 19 || b === 51))
+      || (a === 203 && b === 0 && c === 113)
+    );
+  }
+  if (!net.isIPv6(ip) || isLocalIp(ip)) return false;
+  const lower = ip.toLowerCase();
+  return lower !== '::'
+    && !lower.startsWith('2001:db8')
+    && !lower.startsWith('ff');
+}
+
+export function createIpPlayerCountryResolver({
+  fetchImpl = globalThis.fetch,
+  localCountry = 'Local',
+  clock = Date.now,
+  timeoutMs = PLAYER_COUNTRY_LOOKUP_TIMEOUT_MS,
+  cacheTtlMs = PLAYER_COUNTRY_CACHE_TTL_MS,
+} = {}) {
+  if (
+    typeof fetchImpl !== 'function'
+    || typeof clock !== 'function'
+    || !Number.isSafeInteger(timeoutMs)
+    || timeoutMs < 100
+    || !Number.isSafeInteger(cacheTtlMs)
+    || cacheTtlMs < 1_000
+  ) {
+    throw new TypeError('IP player country resolver settings are invalid');
+  }
+  const safeLocalCountry = normalizedCountry(localCountry) || 'Local';
+  const cache = new Map();
+  return async (ip) => {
+    if (isLocalIp(ip)) return safeLocalCountry;
+    if (!isPublicIp(ip)) return 'Unknown';
+    const now = clock();
+    const cached = cache.get(ip);
+    if (cached && cached.expiresAt > now) return cached.promise;
+    const entry = { promise: null, expiresAt: Number.POSITIVE_INFINITY };
+    entry.promise = (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let country = 'Unknown';
+      try {
+        const response = await fetchImpl(
+          'https://ipwho.is/' + encodeURIComponent(ip) + '?fields=success,country&lang=en',
+          { headers: { Accept: 'application/json' }, signal: controller.signal },
+        );
+        if (response.ok) {
+          const payload = await response.json();
+          if (payload?.success === true) country = normalizedCountry(payload.country) || 'Unknown';
+        }
+      } catch {
+        country = 'Unknown';
+      } finally {
+        clearTimeout(timer);
+      }
+      entry.expiresAt = now + (
+        country === 'Unknown' ? PLAYER_COUNTRY_FAILURE_CACHE_TTL_MS : cacheTtlMs
+      );
+      return country;
+    })();
+    cache.set(ip, entry);
+    return entry.promise;
+  };
 }
 
 function validatePartyId(value) {
@@ -258,6 +380,30 @@ function parseClientMessage(data, isBinary) {
       type: 'profile',
       name: validateAvatarText(value.name, 'name'),
       avatarId: validateAvatarId(value.avatarId),
+    };
+  }
+  if (value?.type === 'telemetry_ping') {
+    if (!exactKeys(value, TELEMETRY_PING_KEYS)) {
+      throw new HttpError(422, 'invalid_multiplayer_telemetry', 'telemetry_ping must use the exact schema');
+    }
+    return {
+      type: 'telemetry_ping',
+      nonce: validateTelemetryInteger(value.nonce, 'nonce', Number.MAX_SAFE_INTEGER - 1),
+    };
+  }
+  if (value?.type === 'telemetry') {
+    if (
+      (!exactKeys(value, TELEMETRY_KEYS) && !exactKeys(value, TELEMETRY_V1_KEYS))
+      || !TELEMETRY_STATES.has(value.state)
+    ) {
+      throw new HttpError(422, 'invalid_multiplayer_telemetry', 'telemetry must use the exact schema');
+    }
+    return {
+      type: 'telemetry',
+      fps: validateTelemetryInteger(value.fps, 'fps', 240),
+      rttMs: validateTelemetryInteger(value.rttMs, 'rttMs', 60_000),
+      state: value.state,
+      ...(value.region === undefined ? {} : { region: validatePlayerRegion(value.region) }),
     };
   }
   if (value?.type === 'party_create') {
@@ -378,6 +524,7 @@ function clonePlayer(connection) {
     avatarId: connection.avatarId,
     avatarUrl: connection.avatarUrl,
     pose: { ...connection.pose },
+    telemetry: { ...connection.telemetry },
   };
 }
 
@@ -444,12 +591,14 @@ export class MultiplayerHub {
     partyLifetimeMs = 30 * 60_000,
     vehicleLeaseMs = VEHICLE_LEASE_MS,
     vehicleRecoveryTickMs = VEHICLE_RECOVERY_TICK_MS,
+    playerCountryResolver = async () => 'Unknown',
   } = {}) {
     if (
       !avatarStore
       || !lobbyStore
       || typeof lobbyStore.getState !== 'function'
       || typeof clock !== 'function'
+      || typeof playerCountryResolver !== 'function'
       || ![
         maxTotal, maxPerIp, pingIntervalMs, partyCountdownMs, partyLifetimeMs,
         vehicleLeaseMs, vehicleRecoveryTickMs,
@@ -469,6 +618,7 @@ export class MultiplayerHub {
     this.partyLifetimeMs = partyLifetimeMs;
     this.vehicleLeaseMs = vehicleLeaseMs;
     this.vehicleRecoveryTickMs = vehicleRecoveryTickMs;
+    this.playerCountryResolver = playerCountryResolver;
     this.connections = new Map();
     this.ipConnections = new Map();
     this.pendingClientIds = new Set();
@@ -607,6 +757,9 @@ export class MultiplayerHub {
       profileRefilledAt: timestamp,
       profileRateNoticeAt: Number.NEGATIVE_INFINITY,
       alive: true,
+      telemetry: { fps: 0, rttMs: 0, state: 'online', region: 'Unknown', updatedAt: timestamp },
+      telemetryUpdatedAt: Number.NEGATIVE_INFINITY,
+      countryResolved: false,
       suppressLeave: false,
       channel: prepared.channel,
       lobbyChannel: prepared.lobbyChannel,
@@ -641,7 +794,33 @@ export class MultiplayerHub {
         : [],
     });
     this.broadcastChannel(connection.channel, { type: 'join', player: clonePlayer(connection) }, connection.clientId);
+    this.resolvePlayerCountry(connection);
     this.startPing();
+  }
+
+  async resolvePlayerCountry(connection) {
+    let country;
+    try {
+      country = normalizedCountry(await this.playerCountryResolver(connection.ip));
+    } catch {
+      return;
+    }
+    if (
+      !country
+      || country === 'Unknown'
+      || this.connections.get(connection.clientId) !== connection
+    ) return;
+    connection.countryResolved = true;
+    connection.telemetry = {
+      ...connection.telemetry,
+      region: country,
+      updatedAt: this.clock(),
+    };
+    this.broadcastChannel(connection.channel, {
+      type: 'telemetry',
+      id: connection.clientId,
+      ...connection.telemetry,
+    });
   }
 
   send(connection, payload) {
@@ -1591,6 +1770,33 @@ export class MultiplayerHub {
     }
     if (message.type === 'return_lobby') {
       this.returnToLobby(connection);
+      return;
+    }
+    if (message.type === 'telemetry_ping') {
+      this.send(connection, {
+        type: 'telemetry_pong',
+        nonce: message.nonce,
+        serverTime: receivedAt,
+      });
+      return;
+    }
+    if (message.type === 'telemetry') {
+      if (receivedAt - connection.telemetryUpdatedAt < TELEMETRY_MIN_INTERVAL_MS) return;
+      connection.telemetryUpdatedAt = receivedAt;
+      connection.telemetry = {
+        fps: message.fps,
+        rttMs: message.rttMs,
+        state: message.state,
+        region: connection.countryResolved
+          ? connection.telemetry.region
+          : message.region ?? connection.telemetry.region,
+        updatedAt: receivedAt,
+      };
+      this.broadcastChannel(connection.channel, {
+        type: 'telemetry',
+        id: connection.clientId,
+        ...connection.telemetry,
+      });
       return;
     }
     if (message.type === 'vehicle_enter') {
