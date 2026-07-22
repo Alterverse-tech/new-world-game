@@ -70,12 +70,13 @@ npm start
 ```text
 GET /          潜航门户（玩家前端）
 GET /admin/    审势台（管理端）
+GET /foundry/  模型素材生产台（Three.js 实时预览）
 GET /healthz   健康检查
 ```
 
 ## 前端
 
-仓库自带两套零构建、无外部依赖的同源前端：
+仓库自带三套零构建、无 CDN 依赖的同源前端：
 
 - **潜航门户（`public/portal/`，挂载于 `/`）**——玩家侧完整界面：
   世界观总纲（海律/层带/阶位/术语表/梦灾横幅/标准梦时）、我的眠海（图腾凝成与凝痕、
@@ -86,8 +87,25 @@ GET /healthz   健康检查
 - **审势台（`public/admin/`，挂载于 `/admin/`）**——管理端：梦域（关卡）与
   AI 梦物审核（沉重律裁定）、隔离试玩预览，以及「眠海运维」面板：手动沉没巡查、
   宣告/查看梦灾。管理员令牌仅驻留页面内存。
+- **模型素材生产台（`public/foundry/`，挂载于 `/foundry/`）**——开发侧的计划编排、
+  任务状态、GLB 实时预览、动作绑定回退、Manifest 与本地文件就绪检查。
 
-两者均为白名单式静态服务（不做目录遍历），亦不引用任何 CDN 资源。
+三者均为白名单式静态服务（不做目录遍历），亦不引用任何 CDN 资源。
+
+## 3D 素材流水线
+
+`/foundry/` 是 WhiteRoom 自带的模型素材生产工作台。它按照 Shark Game Assets 的
+`参考与计划 → 基础建模 → 骨骼绑定 → 语义动作 → 本地校验 → 游戏集成` 流程展示状态：
+
+- `regeneration-plan.json` 只描述当前生产意图；创建或覆盖计划需要管理员令牌。
+- `asset-jobs.json`、`.asset-batches/*`、`asset_manifest.json` 与本地 GLB 是任务事实。
+- 只有非空文件真实存在于 `public/generated-assets/` 时，模型或动作才显示为“就绪”。
+- Three.js 预览会把基础模型与动作 GLB 分开加载；动作不能绑定基础骨架时，会明确标记并直接预览动作文件。
+- 工作台不会从浏览器启动远程生成。由本地 Shark worker 处理计划时，可运行技能附带的
+  `sync-regeneration-status.mjs --watch`，工作台每 2 秒读取一次最新事实。
+
+可用 `WHITEROOM_FOUNDRY_ROOT` 指向模型任务工作目录；默认使用服务进程当前目录。
+Three.js 固定为项目依赖并由同源白名单路径提供，不依赖 CDN。
 
 ## 主要配置
 
@@ -98,6 +116,7 @@ GET /healthz   健康检查
 | `WHITEROOM_DATA_DIR` | 持久化数据目录 | 必填 |
 | `WHITEROOM_PORTAL_TOKEN` | 创作者上传令牌 | 必填 |
 | `WHITEROOM_ADMIN_TOKEN` | 管理员审核令牌 | 必填 |
+| `WHITEROOM_FOUNDRY_ROOT` | 模型计划、任务事实和本地 GLB 的工作目录 | 服务进程当前目录 |
 | `WHITEROOM_CORS_ORIGIN` | 允许的跨域来源 | `*` |
 | `WHITEROOM_DREAMSEA_SECRET` | 图腾/凝痕派生密钥 | 由大厅密钥派生 |
 | `WHITEROOM_DREAMSEA_SINK_AFTER_MS` | 浮力法则下沉时限 | 30 天 |

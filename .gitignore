@@ -3,10 +3,11 @@ node_modules/
 .env.*
 !.env.example
 *.log
+.idea/
+.superdesign/tmp/
 npm-debug.log*
 .DS_Store
 coverage/
 dist/
 tmp/
 temp/
-

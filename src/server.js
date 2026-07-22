@@ -28,6 +28,7 @@ import { asHttpError, GRAVITY_LAW_LORE, HttpError } from './errors.js';
 import { readJsonBody, readMultipartFile, readMultipartForm } from './multipart.js';
 import { FileStore } from './store.js';
 import { DreamseaStore, validateLineageHash } from './dreamsea.js';
+import { FoundryStore } from './foundry.js';
 import {
   DEFAULT_LOBBY_CHANNEL,
   LOBBY_DYNAMIC_RESOURCE_LIMITS,
@@ -98,6 +99,20 @@ const PORTAL_ASSETS = new Map([
   ['/portal/index.html', ['index.html', 'text/html; charset=utf-8']],
   ['/portal/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/portal/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+]);
+const FOUNDRY_ASSET_DIRECTORY = path.resolve(fileURLToPath(new URL('../public/foundry/', import.meta.url)));
+const FOUNDRY_ASSETS = new Map([
+  ['/foundry/', ['index.html', 'text/html; charset=utf-8']],
+  ['/foundry/index.html', ['index.html', 'text/html; charset=utf-8']],
+  ['/foundry/styles.css', ['styles.css', 'text/css; charset=utf-8']],
+  ['/foundry/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+]);
+const THREE_ASSET_DIRECTORY = path.resolve(fileURLToPath(new URL('../node_modules/three/', import.meta.url)));
+const FOUNDRY_VENDOR_ASSETS = new Map([
+  ['/foundry/vendor/three.module.js', ['build/three.module.min.js', 'text/javascript; charset=utf-8']],
+  ['/foundry/vendor/addons/loaders/GLTFLoader.js', ['examples/jsm/loaders/GLTFLoader.js', 'text/javascript; charset=utf-8']],
+  ['/foundry/vendor/addons/controls/OrbitControls.js', ['examples/jsm/controls/OrbitControls.js', 'text/javascript; charset=utf-8']],
+  ['/foundry/vendor/addons/utils/BufferGeometryUtils.js', ['examples/jsm/utils/BufferGeometryUtils.js', 'text/javascript; charset=utf-8']],
 ]);
 const PREVIEW_COOKIE_NAME = '__Secure-whiteroom_preview';
 const LOBBY_OWNER_COOKIE_NAME = 'whiteroom_lobby_owner';
@@ -258,6 +273,87 @@ async function sendPortalAsset(request, response, pathname) {
   }
   await new Promise((resolve, reject) => {
     const stream = createReadStream(filePath);
+    stream.once('error', reject);
+    response.once('error', reject);
+    response.once('finish', resolve);
+    stream.pipe(response);
+  });
+}
+
+async function sendFoundryAsset(request, response, pathname) {
+  const foundryAsset = FOUNDRY_ASSETS.get(pathname);
+  const vendorAsset = FOUNDRY_VENDOR_ASSETS.get(pathname);
+  const asset = foundryAsset ?? vendorAsset;
+  if (!asset) throw new HttpError(404, 'not_found', 'Resource not found');
+  const [fileName, contentType] = asset;
+  const directory = foundryAsset ? FOUNDRY_ASSET_DIRECTORY : THREE_ASSET_DIRECTORY;
+  const filePath = path.join(directory, fileName);
+  const info = await stat(filePath);
+  if (!info.isFile()) throw new HttpError(404, 'not_found', 'Resource not found');
+  const baseHeaders = {
+    'Cache-Control': vendorAsset ? 'public, max-age=86400' : 'no-cache',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  };
+  if (await sendCompressedFileIfEligible(request, response, filePath, info.size, contentType, baseHeaders)) return;
+  response.writeHead(200, {
+    ...baseHeaders,
+    'Content-Type': contentType,
+    'Content-Length': info.size,
+  });
+  if (request.method === 'HEAD') {
+    response.end();
+    return;
+  }
+  await new Promise((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.once('error', reject);
+    response.once('error', reject);
+    response.once('finish', resolve);
+    stream.pipe(response);
+  });
+}
+
+async function sendFoundryRuntimeAsset(request, response, context, requestedPath) {
+  const relative = staticRelativePath(requestedPath);
+  if (path.extname(relative).toLowerCase() !== '.glb') {
+    throw new HttpError(404, 'not_found', 'Resource not found');
+  }
+  let generatedRoot;
+  try {
+    generatedRoot = await realpath(path.resolve(context.foundryStore.rootDirectory, 'public/generated-assets'));
+  } catch (error) {
+    if (error.code === 'ENOENT') throw new HttpError(404, 'not_found', 'Resource not found');
+    throw error;
+  }
+  const candidate = path.resolve(generatedRoot, relative);
+  if (!candidate.startsWith(`${generatedRoot}${path.sep}`)) {
+    throw new HttpError(400, 'invalid_path', 'Generated asset path is invalid');
+  }
+  let resolved;
+  try {
+    resolved = await realpath(candidate);
+  } catch (error) {
+    if (error.code === 'ENOENT') throw new HttpError(404, 'not_found', 'Resource not found');
+    throw error;
+  }
+  if (!resolved.startsWith(`${generatedRoot}${path.sep}`)) {
+    throw new HttpError(400, 'invalid_path', 'Generated asset path escapes its root');
+  }
+  const info = await stat(resolved);
+  if (!info.isFile()) throw new HttpError(404, 'not_found', 'Resource not found');
+  response.writeHead(200, {
+    'Content-Type': 'model/gltf-binary',
+    'Content-Length': info.size,
+    'Cache-Control': 'no-cache',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  if (request.method === 'HEAD') {
+    response.end();
+    return;
+  }
+  await new Promise((resolve, reject) => {
+    const stream = createReadStream(resolved);
     stream.once('error', reject);
     response.once('error', reject);
     response.once('finish', resolve);
@@ -1858,6 +1954,38 @@ async function route(request, response, context) {
     if (served) return;
   }
 
+  if ((request.method === 'GET' || request.method === 'HEAD') && pathname === '/foundry') {
+    response.writeHead(308, {
+      Location: '/foundry/',
+      'Cache-Control': 'no-store',
+    });
+    response.end();
+    return;
+  }
+
+  if ((request.method === 'GET' || request.method === 'HEAD') && (FOUNDRY_ASSETS.has(pathname) || FOUNDRY_VENDOR_ASSETS.has(pathname))) {
+    await sendFoundryAsset(request, response, pathname);
+    return;
+  }
+
+  const generatedAssetMatch = /^\/generated-assets\/(.+)$/.exec(pathname);
+  if ((request.method === 'GET' || request.method === 'HEAD') && generatedAssetMatch) {
+    await sendFoundryRuntimeAsset(request, response, context, generatedAssetMatch[1]);
+    return;
+  }
+
+  if (request.method === 'GET' && pathname === '/api/foundry/snapshot') {
+    sendJson(response, 200, await context.foundryStore.snapshot(), { 'Cache-Control': 'no-store' });
+    return;
+  }
+
+  if (request.method === 'POST' && pathname === '/api/foundry/plans') {
+    requireBearer(request, context.adminToken);
+    const body = await readJsonBody(request, 32 * 1024);
+    sendJson(response, 201, await context.foundryStore.createPlan(body), { 'Cache-Control': 'no-store' });
+    return;
+  }
+
   if ((request.method === 'GET' || request.method === 'HEAD') && pathname === '/admin') {
     response.writeHead(308, {
       Location: '/admin/',
@@ -2435,6 +2563,12 @@ export async function createApplication(options = {}) {
     idFactory: options.propCreationIdFactory,
   });
   await propCreationStore.initialize();
+  const foundryStore = options.foundryStore ?? new FoundryStore({
+    rootDirectory: options.foundryRootDirectory
+      ?? process.env.WHITEROOM_FOUNDRY_ROOT
+      ?? path.resolve('.'),
+    clock,
+  });
   const lobbyCatalog = options.lobbyCatalog ?? await loadLobbyCatalog();
   const lobbyAssetStore = options.lobbyAssetStore ?? new LobbyAssetStore({
     dataDirectory: store.dataDirectory ?? dataDirectory,
@@ -2631,6 +2765,7 @@ export async function createApplication(options = {}) {
     avatarUploadGate,
     multiplayerHub: null,
     propCreationStore,
+    foundryStore,
     propWorkerToken,
     propAutoPublish,
     uploadToken,

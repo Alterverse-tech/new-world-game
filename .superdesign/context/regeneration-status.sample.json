@@ -1,0 +1,44 @@
+{
+  "status": "pending",
+  "runId": "replace-with-a-fresh-run-id",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "message": "等待生成开始。",
+  "items": [
+    {
+      "id": "sample-player",
+      "name": "示例角色",
+      "role": "player",
+      "status": "pending",
+      "progress": 0,
+      "runtimeUrl": "",
+      "clips": [
+        {
+          "name": "idle",
+          "status": "pending",
+          "progress": 0,
+          "runtimeUrl": "",
+          "error": ""
+        },
+        {
+          "name": "walk",
+          "status": "pending",
+          "progress": 0,
+          "runtimeUrl": "",
+          "error": ""
+        }
+      ],
+      "error": ""
+    },
+    {
+      "id": "sample-prop",
+      "name": "示例道具",
+      "role": "prop",
+      "status": "pending",
+      "progress": 0,
+      "runtimeUrl": "",
+      "clips": [],
+      "error": ""
+    }
+  ],
+  "failures": []
+}
