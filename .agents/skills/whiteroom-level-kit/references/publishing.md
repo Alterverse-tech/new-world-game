@@ -1,6 +1,6 @@
 # 发布
 
-默认门户：`https://whiteroom.174-129-74-70.sslip.io`。可用 `WHITEROOM_PORTAL_URL` 覆盖。发布令牌只允许发送到 HTTPS 门户；本机开发测试可显式使用 `http://127.0.0.1`。
+默认门户：`https://altverse.fun`。可用 `WHITEROOM_PORTAL_URL` 覆盖。发布令牌只允许发送到 HTTPS 门户；本机开发测试可显式使用 `http://127.0.0.1`。
 
 ## 命令
 

@@ -36,7 +36,7 @@ description: 为 WhiteRoom（白房间）Three.js 游戏创建、修改、试玩
 8. 上传是唯一远程写操作。即使用户最初说“做完上传”，也要在真正执行上传前展示关卡名、最终 ID 和校验结果，并获得明确确认。确认后运行：
 
    ```bash
-   WHITEROOM_PORTAL_URL="${WHITEROOM_PORTAL_URL:-https://whiteroom.174-129-74-70.sslip.io}" \
+   WHITEROOM_PORTAL_URL="${WHITEROOM_PORTAL_URL:-https://altverse.fun}" \
    WHITEROOM_PORTAL_TOKEN="$WHITEROOM_PORTAL_TOKEN" \
    node <skill-dir>/scripts/publish.mjs publish --dir <关卡目录> --confirmed
    ```

@@ -89,7 +89,7 @@ async function main() {
   };
   const port = Number(args.port ?? 4173);
   const shellDir = args['shell-dir'] ? path.resolve(String(args['shell-dir'])) : null;
-  const portal = String(process.env.WHITEROOM_PORTAL_URL || 'https://whiteroom.174-129-74-70.sslip.io').replace(/\/+$/, '');
+  const portal = String(process.env.WHITEROOM_PORTAL_URL || 'https://altverse.fun').replace(/\/+$/, '');
 
   const server = http.createServer(async (request, response) => {
     try {

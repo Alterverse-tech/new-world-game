@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { packLevel, parseArgs } from './lib.mjs';
 
-const DEFAULT_PORTAL = 'https://whiteroom.174-129-74-70.sslip.io';
+const DEFAULT_PORTAL = 'https://altverse.fun';
 
 function portalUrl() {
   return String(process.env.WHITEROOM_PORTAL_URL || DEFAULT_PORTAL).replace(/\/+$/, '');
