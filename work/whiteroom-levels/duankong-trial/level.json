@@ -1,0 +1,42 @@
+{
+  "schema": "wr-level",
+  "schemaVersion": 1,
+  "engineApi": "1",
+  "id": "duankong-trial-93200e",
+  "name": "断空试炼",
+  "version": "1.0.0",
+  "author": {
+    "name": "Jimmy"
+  },
+  "description": "攀登悬空高塔，在精准跳跃与赤色旋转机关之间找到通往塔顶的节奏。",
+  "language": "zh-CN",
+  "type": "reach_zone",
+  "winCondition": {
+    "type": "reach_zone",
+    "parTime": 300
+  },
+  "objective": "穿越三重跑酷试炼，抵达塔顶",
+  "difficulty": 5,
+  "estimatedMinutes": 8,
+  "spawn": {
+    "position": [
+      0,
+      1.8,
+      8
+    ],
+    "yawDeg": 0
+  },
+  "door": null,
+  "killY": -10,
+  "entry": "main.js",
+  "cover": "cover.png",
+  "tags": [
+    "跑酷",
+    "高难",
+    "机关",
+    "检查点",
+    "几何"
+  ],
+  "contentRating": "everyone",
+  "credits": []
+}
