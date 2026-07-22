@@ -40,18 +40,24 @@ target="__TARGET__"
 short="__SHORT__"
 repo=/opt/whiteroom/app
 root=/opt/whiteroom-platform
+static_current=/var/www/whiteroom/current
 service=whiteroom-platform.service
 
 git -c safe.directory="$repo" -C "$repo" fetch --quiet origin main
 [[ "$(git -c safe.directory="$repo" -C "$repo" rev-parse FETCH_HEAD)" == "$target" ]]
 
 previous="$(readlink -f "$root/current")"
+previous_static="$(readlink -f "$static_current")"
 active_short="$(basename "$previous" | cut -d- -f3)"
 release="$root/releases/$(date +%Y%m%d-%H%M%S)-$short"
 switched=0
+static_switched=0
 
 rollback() {
   trap - ERR
+  if [[ "$static_switched" == 1 ]]; then
+    ln -sfn "$previous_static" "$static_current"
+  fi
   if [[ "$switched" == 1 ]]; then
     ln -sfn "$previous" "$root/current"
     systemctl restart "$service"
@@ -73,8 +79,11 @@ else
   (cd "$release" && npm ci --omit=dev)
 fi
 
+[[ -d "$release/public/game" ]]
 ln -sfn "$release" "$root/current"
 switched=1
+ln -sfn "$release/public/game" "$static_current"
+static_switched=1
 systemctl restart "$service"
 sleep 2
 systemctl is-active --quiet "$service"
@@ -82,9 +91,11 @@ curl -fsS --max-time 8 http://127.0.0.1:8787/healthz >/dev/null
 pid="$(systemctl show "$service" --property MainPID --value)"
 [[ "$pid" -gt 0 ]]
 [[ "$(readlink -f "/proc/$pid/cwd")" == "$release" ]]
+[[ "$(readlink -f "$static_current")" == "$release/public/game" ]]
 trap - ERR
 
-printf 'ACTIVE=%s\nPREVIOUS=%s\nSYSTEMD_PID=%s\nLOCAL_HEALTH=200\n' "$release" "$previous" "$pid"
+printf 'ACTIVE=%s\nSTATIC=%s\nPREVIOUS=%s\nSYSTEMD_PID=%s\nLOCAL_HEALTH=200\n' \
+  "$release" "$release/public/game" "$previous" "$pid"
 '''
 command = command.replace('__TARGET__', target).replace('__SHORT__', short)
 print(json.dumps({'commands': [f'bash -lc {shlex.quote(command)}']}))
