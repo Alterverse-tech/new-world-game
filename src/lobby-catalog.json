@@ -94,6 +94,70 @@
       "interaction": { "mode": "cycle", "durationMs": 0, "cooldownMs": 150 }
     },
     {
+      "id": "code-metropolitan-museum-gallery",
+      "name": "大都会艺术博物馆·名画厅",
+      "category": "建筑",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "metropolitan-museum-gallery",
+      "physics": {
+        "body": "fixed",
+        "mass": 0,
+        "friction": 1.05,
+        "restitution": 0.02,
+        "colliders": [
+          {
+            "shape": "box",
+            "halfExtents": [5.52, 0.08, 4.96],
+            "position": [0, 5.33, 0],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [0.12, 2.6, 4.96],
+            "position": [-5.4, 2.76, 0],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [0.12, 2.6, 4.96],
+            "position": [5.4, 2.76, 0],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [5.52, 2.6, 0.12],
+            "position": [0, 2.76, -4.84],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [1.72, 2.6, 0.12],
+            "position": [-3.8, 2.76, 4.84],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [1.72, 2.6, 0.12],
+            "position": [3.8, 2.76, 4.84],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [0.096, 2.2, 2],
+            "position": [-2.04, 2.36, -1.04],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [0.096, 2.2, 2],
+            "position": [2.04, 2.36, -1.04],
+            "rotation": [0, 0, 0]
+          }
+        ]
+      }
+    },
+    {
       "id": "code-precision-rescue-helicopter",
       "name": "苍隼救援直升机",
       "category": "载具",
@@ -125,6 +189,71 @@
       "defaultScale": 1,
       "code": "spacex-starship",
       "interaction": { "mode": "timeline", "durationMs": 14100, "cooldownMs": 14100 }
+    },
+    {
+      "id": "code-trump-tower-residences",
+      "name": "特朗普大厦·曼哈顿公寓",
+      "category": "互动建筑",
+      "kind": "code",
+      "defaultScale": 1,
+      "code": "trump-tower-residences",
+      "interaction": { "mode": "cycle", "durationMs": 900, "cooldownMs": 900 },
+      "physics": {
+        "body": "fixed",
+        "mass": 0,
+        "friction": 1.08,
+        "restitution": 0.02,
+        "colliders": [
+          {
+            "shape": "box",
+            "halfExtents": [3, 0.12, 2.55],
+            "position": [0, 2.6, 0],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [3, 0.12, 2.55],
+            "position": [0, 5.2, 0],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [0.12, 3.9, 2.55],
+            "position": [-2.88, 3.9, 0],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [0.12, 3.9, 2.55],
+            "position": [2.88, 3.9, 0],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [3, 3.9, 0.12],
+            "position": [0, 3.9, -2.5],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [0.94, 3.9, 0.12],
+            "position": [-2.04, 3.9, 2.5],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [0.94, 3.9, 0.12],
+            "position": [2.04, 3.9, 2.5],
+            "rotation": [0, 0, 0]
+          },
+          {
+            "shape": "box",
+            "halfExtents": [2.7, 1.13, 0.1],
+            "position": [0, 1.25, 0.75],
+            "rotation": [0, 0, 0]
+          }
+        ]
+      }
     },
     {
       "id": "glb-lounge-chair",
