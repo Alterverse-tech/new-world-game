@@ -1,0 +1,4 @@
+interface:
+  display_name: "WhiteRoom Pre EC2 Deploy"
+  short_description: "快速部署 WhiteRoom pre_main 到固定 EC2 实例"
+  default_prompt: "Use $whiteroom-pre-deploy-ec2 to quickly deploy the current pre_main commit to the WhiteRoom EC2 instance."
