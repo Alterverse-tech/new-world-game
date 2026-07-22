@@ -1,6 +1,7 @@
 .account-password-legacy[hidden],
 #account-reset-open[hidden],
 #account-register-btn[hidden],
+.account-login-email-field[hidden],
 .account-login-otp-panel[hidden] {
   display: none;
 }
