@@ -6,7 +6,7 @@ const deployDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(deployDirectory, '../..');
 const gameDirectory = process.argv[2]
   ? path.resolve(process.argv[2])
-  : path.join(repository, 'tmp/whiteroom-game');
+  : path.join(repository, 'public/game');
 const indexPath = path.join(gameDirectory, 'index.html');
 const overlayName = 'game-experience-20260721.js';
 const overlaySource = path.join(deployDirectory, 'whiteroom-game-experience.js');

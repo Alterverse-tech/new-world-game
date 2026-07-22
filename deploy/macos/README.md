@@ -4,9 +4,12 @@ Public test entry:
 
 `https://handcart-stroller-flop.ngrok-free.dev/whiteroom-dev`
 
-The setup keeps the backend private on `127.0.0.1:8787`, serves the game on
-`127.0.0.1:4174`, and exposes only port 4174 through the account's fixed ngrok
-HTTPS endpoint. Supabase Auth redirects are configured for the public origin.
+The setup keeps the backend private on `127.0.0.1:8787`, serves the tracked
+`public/game/` build on `127.0.0.1:4174`, and exposes only port 4174 through
+the account's fixed ngrok HTTPS endpoint. The local gateway lives at
+`deploy/macos/whiteroom-game-server.mjs`; runtime no longer depends on the
+ignored `tmp/` directory. Supabase Auth redirects are configured for the
+public origin.
 
 ## Manage services
 
