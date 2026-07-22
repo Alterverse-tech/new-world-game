@@ -85,11 +85,17 @@ const ADMIN_ASSETS = new Map([
   ['/admin/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/admin/app.js', ['app.js', 'text/javascript; charset=utf-8']],
 ]);
-// 潜航门户（玩家前端）：与审核台相同的白名单式静态服务
+// WhiteRoom 游戏构建：入口固定在根路径，构建资源仅从正式 public/game 目录读取。
+const GAME_ASSET_DIRECTORY = path.resolve(fileURLToPath(new URL('../public/game/', import.meta.url)));
+const GAME_ENTRY_ASSETS = new Map([
+  ['/', 'index.html'],
+  ['/index.html', 'index.html'],
+]);
+// 潜航门户：保留在 /portal/，与审核台相同地采用白名单式静态服务。
 const PORTAL_ASSET_DIRECTORY = path.resolve(fileURLToPath(new URL('../public/portal/', import.meta.url)));
 const PORTAL_ASSETS = new Map([
-  ['/', ['index.html', 'text/html; charset=utf-8']],
-  ['/index.html', ['index.html', 'text/html; charset=utf-8']],
+  ['/portal/', ['index.html', 'text/html; charset=utf-8']],
+  ['/portal/index.html', ['index.html', 'text/html; charset=utf-8']],
   ['/portal/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/portal/app.js', ['app.js', 'text/javascript; charset=utf-8']],
 ]);
@@ -102,6 +108,8 @@ const DEFAULT_PREVIEW_TTL_SECONDS = 5 * 60;
 const MAX_PREVIEW_TTL_SECONDS = 15 * 60;
 const MAX_ADMIN_PAGE_SIZE = 100;
 const MIME_TYPES = new Map([
+  ['.html', 'text/html; charset=utf-8'],
+  ['.css', 'text/css; charset=utf-8'],
   ['.json', 'application/json; charset=utf-8'],
   ['.js', 'text/javascript; charset=utf-8'],
   ['.md', 'text/markdown; charset=utf-8'],
@@ -128,7 +136,7 @@ function publicHeaders(corsOrigin = '*') {
 // 走线压缩：JSON 与文本静态资源按需 gzip；GLB/图片/音频等已压缩格式不重复压缩
 const COMPRESSION_MIN_BYTES = 1024;
 const COMPRESSIBLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
-const COMPRESSIBLE_EXTENSIONS = new Set(['.json', '.js', '.md', '.gltf']);
+const COMPRESSIBLE_EXTENSIONS = new Set(['.html', '.css', '.json', '.js', '.md', '.gltf']);
 
 function requestAcceptsGzip(request) {
   const header = request.headers['accept-encoding'];
@@ -280,6 +288,57 @@ function staticRelativePath(value) {
     throw new HttpError(400, 'invalid_path', 'Static asset path is invalid');
   }
   return candidate;
+}
+
+async function sendGameAsset(request, response, requestedPath) {
+  const relative = staticRelativePath(requestedPath);
+  const gameRoot = await realpath(GAME_ASSET_DIRECTORY);
+  const candidate = path.resolve(gameRoot, relative);
+  if (!candidate.startsWith(`${gameRoot}${path.sep}`)) {
+    throw new HttpError(400, 'invalid_path', 'Game asset path is invalid');
+  }
+
+  let resolved;
+  try {
+    resolved = await realpath(candidate);
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+  if (!resolved.startsWith(`${gameRoot}${path.sep}`)) {
+    throw new HttpError(400, 'invalid_path', 'Game asset path escapes its root');
+  }
+
+  const info = await stat(resolved);
+  if (!info.isFile()) return false;
+  const extension = path.extname(resolved).toLowerCase();
+  const contentType = MIME_TYPES.get(extension) ?? 'application/octet-stream';
+  const baseHeaders = {
+    'Cache-Control': relative === 'index.html' ? 'no-cache' : 'public, max-age=86400',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  };
+  if (
+    COMPRESSIBLE_EXTENSIONS.has(extension)
+    && await sendCompressedFileIfEligible(request, response, resolved, info.size, contentType, baseHeaders)
+  ) return true;
+  response.writeHead(200, {
+    ...baseHeaders,
+    'Content-Type': contentType,
+    'Content-Length': info.size,
+  });
+  if (request.method === 'HEAD') {
+    response.end();
+    return true;
+  }
+  await new Promise((resolve, reject) => {
+    const stream = createReadStream(resolved);
+    stream.once('error', reject);
+    response.once('error', reject);
+    response.once('finish', resolve);
+    stream.pipe(response);
+  });
+  return true;
 }
 
 async function sendPackageFile(request, response, store, record, requestedPath, headers) {
@@ -1774,9 +1833,29 @@ async function route(request, response, context) {
     return;
   }
 
+  if ((request.method === 'GET' || request.method === 'HEAD') && GAME_ENTRY_ASSETS.has(pathname)) {
+    await sendGameAsset(request, response, GAME_ENTRY_ASSETS.get(pathname));
+    return;
+  }
+
+  if ((request.method === 'GET' || request.method === 'HEAD') && pathname === '/portal') {
+    response.writeHead(308, {
+      Location: '/portal/',
+      'Cache-Control': 'no-store',
+    });
+    response.end();
+    return;
+  }
+
   if ((request.method === 'GET' || request.method === 'HEAD') && PORTAL_ASSETS.has(pathname)) {
     await sendPortalAsset(request, response, pathname);
     return;
+  }
+
+  const gameAssetMatch = /^\/(assets|generated-assets)\/(.+)$/.exec(pathname);
+  if ((request.method === 'GET' || request.method === 'HEAD') && gameAssetMatch) {
+    const served = await sendGameAsset(request, response, `${gameAssetMatch[1]}/${gameAssetMatch[2]}`);
+    if (served) return;
   }
 
   if ((request.method === 'GET' || request.method === 'HEAD') && pathname === '/admin') {

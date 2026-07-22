@@ -1,0 +1,212 @@
+.player-stats-panel {
+  position: absolute;
+  top: 88px;
+  left: 28px;
+  z-index: 9;
+  width: min(450px, calc(100vw - 56px));
+  max-height: min(46vh, 440px);
+  overflow: auto;
+  color: #293330;
+  border: 1px solid rgba(23, 37, 33, .14);
+  border-radius: 14px;
+  background: rgba(248, 250, 247, .92);
+  box-shadow: 0 16px 40px rgba(20, 34, 30, .12);
+  backdrop-filter: blur(16px) saturate(.82);
+  pointer-events: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(24, 38, 34, .2) transparent;
+}
+
+.player-stats-panel > header,
+.player-stats-panel > header > div,
+.player-stat-row,
+.player-stat-person {
+  display: flex;
+  align-items: center;
+}
+
+.player-stats-panel > header {
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(23, 37, 33, .1);
+}
+
+.player-stats-panel > header > div {
+  gap: 8px;
+}
+
+.player-stats-panel > header b {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.player-stats-panel > header small,
+.player-stats-labels,
+.player-stat-state,
+.player-stat-metric {
+  font: 600 8px/1.2 "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing: .035em;
+}
+
+.player-stats-panel > header small {
+  color: #78827e;
+}
+
+.player-stats-live,
+.player-stat-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #35a58f;
+  box-shadow: 0 0 0 3px rgba(53, 165, 143, .14);
+}
+
+.player-stats-panel.is-offline .player-stats-live,
+.player-stat-row[data-state="offline"] .player-stat-dot {
+  background: #a75443;
+  box-shadow: 0 0 0 3px rgba(167, 84, 67, .12);
+}
+
+.player-stat-row[data-state="away"] .player-stat-dot {
+  background: #bd8a44;
+  box-shadow: 0 0 0 3px rgba(189, 138, 68, .12);
+}
+
+.player-stats-labels,
+.player-stat-row {
+  display: grid;
+  grid-template-columns: minmax(112px, 1fr) 54px 48px 43px minmax(76px, auto);
+  gap: 8px;
+}
+
+.player-stats-labels {
+  padding: 7px 12px 5px;
+  color: #98a09d;
+  text-transform: uppercase;
+}
+
+.player-stats-labels span:not(:first-child) {
+  text-align: right;
+}
+
+.player-stat-row {
+  min-height: 42px;
+  padding: 7px 12px;
+  border-top: 1px solid rgba(23, 37, 33, .07);
+}
+
+.player-stat-row:first-child {
+  border-top: 0;
+}
+
+.player-stat-person {
+  min-width: 0;
+  gap: 8px;
+}
+
+.player-stat-person-copy {
+  min-width: 0;
+}
+
+.player-stat-name,
+.player-stat-you {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-stat-name {
+  color: #1d2724;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.player-stat-you {
+  margin-top: 2px;
+  color: #8b9490;
+  font: 600 7px/1 "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.player-stat-state,
+.player-stat-metric {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.player-stat-region {
+  min-width: 0;
+  overflow: hidden;
+  color: #65706c;
+  font: 600 8px/1.2 "IBM Plex Mono", ui-monospace, monospace;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-stat-state {
+  color: #397e70;
+}
+
+.player-stat-row[data-state="away"] .player-stat-state {
+  color: #9a6b2d;
+}
+
+.player-stat-row[data-state="offline"] .player-stat-state,
+.player-stat-metric.is-poor {
+  color: #a44f3e;
+}
+
+.player-stat-metric {
+  color: #596560;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-stat-metric.is-good {
+  color: #278a77;
+}
+
+.player-stat-metric.is-fair {
+  color: #9a702f;
+}
+
+.player-stats-empty {
+  margin: 0;
+  padding: 16px 12px;
+  color: #7f8985;
+  font-size: 10px;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .player-stats-panel {
+    top: auto;
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(66px, calc(env(safe-area-inset-bottom) + 66px));
+    left: max(16px, env(safe-area-inset-left));
+    width: auto;
+    max-height: min(34dvh, 280px);
+    border-radius: 13px;
+  }
+}
+
+@media (max-width: 420px) {
+  .player-stats-labels,
+  .player-stat-row {
+    grid-template-columns: minmax(82px, 1fr) 45px 42px 38px minmax(64px, auto);
+    gap: 5px;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-stats-panel,
+  .player-stats-panel * {
+    transition: none !important;
+  }
+}

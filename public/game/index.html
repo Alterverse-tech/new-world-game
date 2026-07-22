@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob: https://uzshphuobuaeyadxgriv.supabase.co"
+    />
+    <meta name="theme-color" content="#f6f6f4" />
+    <meta name="description" content="WhiteRoom · 一间白房间，无数个世界。" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23101010'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%23f6f6f4' stroke-width='4'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23f6f6f4'/%3E%3C/svg%3E" />
+    <title>WhiteRoom · 白房间</title>
+    <script src="./assets/account-reset-bootstrap-20260721.js?v=reset1"></script>
+    <script src="./assets/account-register-20260721.js?v=otp6" defer></script>
+    <script src="./assets/account-reset-20260721.js?v=reset1" defer></script>
+    <script src="./assets/player-stats-20260721.js?v=stats4"></script>
+    <script src="./assets/game-experience-20260721.js?v=game1" defer></script>
+    <script type="module" crossorigin src="./assets/index-C4bZ867h-authfix.js?v=asset-budget2"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-7Eajp7Zf.css">
+    <link rel="stylesheet" href="./assets/player-stats-20260721.css?v=stats4">
+    <link rel="stylesheet" href="./assets/account-register-20260721.css?v=otp5">
+    <link rel="stylesheet" href="./assets/account-reset-20260721.css?v=reset1">
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas" aria-label="WhiteRoom 3D 游戏画面"></canvas>
+
+      <div id="screen-fade" class="screen-fade" aria-hidden="true"></div>
+      <div id="vignette" class="vignette" aria-hidden="true"></div>
+
+      <section id="boot-overlay" class="panel-layer visible" aria-label="游戏开始">
+        <div class="boot-card">
+          <p class="eyebrow">WHITEROOM OS · BUILD 1.0</p>
+          <h1>WHITE<span>ROOM</span></h1>
+          <p class="boot-copy">一间白房间。<br />一台会唱歌、也能通向无数世界的自动贩卖机。</p>
+          <section id="account-panel" class="account-panel" data-state="loading" aria-label="玩家账号">
+            <div class="account-identity">
+              <span class="account-provider-mark" aria-hidden="true">@</span>
+              <span><b id="account-user-name">正在检查账号</b><small id="account-status" aria-live="polite">也可以继续使用游客模式</small></span>
+            </div>
+            <div class="account-actions">
+              <button id="account-login-open-btn" class="account-login-open-btn" type="button" aria-controls="account-auth-dialog" aria-haspopup="dialog" disabled>邮箱登录</button>
+              <button id="account-signout-btn" class="account-signout-btn hidden" type="button">退出登录</button>
+            </div>
+          </section>
+          <form id="lobby-channel-form" class="lobby-channel-form" novalidate>
+            <label for="lobby-channel-input">
+              <span>大厅频道号</span>
+              <small>输入相同频道号，才能见到同一批玩家和物件</small>
+            </label>
+            <div class="lobby-channel-control">
+              <span aria-hidden="true">#</span>
+              <input
+                id="lobby-channel-input"
+                name="channel"
+                type="text"
+                value="0000"
+                inputmode="numeric"
+                autocomplete="off"
+                enterkeyhint="go"
+                minlength="4"
+                maxlength="12"
+                pattern="[0-9]{4,12}"
+                aria-describedby="lobby-channel-status"
+                required
+              />
+              <button id="start-btn" class="primary-btn" type="submit">进入频道</button>
+            </div>
+            <p id="lobby-channel-status" class="lobby-channel-status" aria-live="polite">4–12 位数字 · 原共享大厅保留在 0000</p>
+          </form>
+          <p class="control-line">WASD 移动 · 鼠标观察 · 滚轮缩放第三人称 · Shift 冲刺 · Space 跳跃 · E 交互 · B 装修大厅 · V 切换视角 · P 更换形象 · Esc 暂停 · F 全屏</p>
+        </div>
+      </section>
+
+      <dialog id="account-auth-dialog" class="account-auth-dialog" aria-labelledby="account-auth-title" aria-describedby="account-auth-copy">
+        <div class="account-auth-shell">
+          <header class="account-auth-head">
+            <div>
+              <p class="eyebrow">PLAYER ACCOUNT</p>
+              <h2 id="account-auth-title">邮箱账号</h2>
+              <p id="account-auth-copy">登录后可在不同设备继续使用同一玩家资料。</p>
+            </div>
+            <button id="account-auth-close" type="button" aria-label="关闭邮箱登录">×</button>
+          </header>
+          <form id="account-auth-form" class="account-auth-form" autocomplete="on" novalidate>
+            <label class="account-auth-field" for="account-email-input">
+              <span>邮箱地址</span>
+              <input
+                id="account-email-input"
+                name="email"
+                type="email"
+                inputmode="email"
+                autocomplete="email"
+                autocapitalize="none"
+                spellcheck="false"
+                maxlength="254"
+                placeholder="name@example.com"
+                required
+              />
+            </label>
+            <label class="account-auth-field" for="account-password-input">
+              <span>密码</span>
+              <input
+                id="account-password-input"
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                minlength="8"
+                maxlength="72"
+                placeholder="至少 8 个字符"
+                aria-describedby="account-auth-message"
+                required
+              />
+            </label>
+            <button id="account-reset-open" class="account-reset-link" type="button">忘记密码？</button>
+            <p id="account-auth-message" class="account-auth-message" role="status" aria-live="polite">输入邮箱和密码登录，或直接创建新账号。</p>
+            <div class="account-auth-actions">
+              <button id="account-login-btn" type="submit">登录</button>
+              <button id="account-register-btn" type="button">注册新账号</button>
+            </div>
+          </form>
+        </div>
+      </dialog>
+
+      <dialog id="account-reset-dialog" class="account-auth-dialog account-reset-dialog" aria-labelledby="account-reset-title" aria-describedby="account-reset-copy">
+        <div class="account-auth-shell">
+          <header class="account-auth-head">
+            <div>
+              <p class="eyebrow">ACCOUNT RECOVERY</p>
+              <h2 id="account-reset-title">找回账号</h2>
+              <p id="account-reset-copy">通过注册邮箱验证身份，并设置一个新密码。</p>
+            </div>
+            <button id="account-reset-close" class="account-reset-close" type="button" aria-label="关闭密码重置">×</button>
+          </header>
+
+          <ol class="account-reset-steps" aria-label="密码重置步骤">
+            <li class="is-active" data-reset-step="email"><span>01</span><b>验证邮箱</b></li>
+            <li data-reset-step="password"><span>02</span><b>设置密码</b></li>
+          </ol>
+
+          <form id="account-reset-form" class="account-auth-form" autocomplete="on" novalidate>
+            <div id="account-reset-email-panel" class="account-reset-panel">
+              <label class="account-auth-field" for="account-reset-email">
+                <span>注册邮箱</span>
+                <input
+                  id="account-reset-email"
+                  name="email"
+                  type="email"
+                  inputmode="email"
+                  autocomplete="email"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  maxlength="254"
+                  placeholder="name@example.com"
+                  required
+                />
+              </label>
+              <p class="account-reset-note">我们会发送一封密码重置邮件。为保护账号，无论邮箱是否存在，页面都会显示相同结果。</p>
+            </div>
+
+            <div id="account-reset-password-panel" class="account-reset-panel" hidden>
+              <div class="account-reset-verified">
+                <span>邮箱验证完成</span>
+                <strong>现在设置新密码</strong>
+              </div>
+              <label class="account-auth-field" for="account-reset-password">
+                <span>新密码</span>
+                <input
+                  id="account-reset-password"
+                  name="new-password"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="8"
+                  maxlength="72"
+                  placeholder="8–72 个字符"
+                  required
+                />
+              </label>
+              <label class="account-auth-field" for="account-reset-password-confirm">
+                <span>确认新密码</span>
+                <input
+                  id="account-reset-password-confirm"
+                  name="new-password-confirm"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="8"
+                  maxlength="72"
+                  placeholder="再次输入新密码"
+                  required
+                />
+              </label>
+            </div>
+
+            <p id="account-reset-message" class="account-auth-message" data-state="guest" role="status" aria-live="polite">输入注册邮箱以接收重置邮件。</p>
+            <div class="account-reset-actions">
+              <button id="account-reset-submit" type="submit">发送重置邮件</button>
+              <button id="account-reset-back" type="button">返回登录</button>
+            </div>
+          </form>
+        </div>
+      </dialog>
+
+      <dialog id="account-register-dialog" class="account-auth-dialog account-register-dialog" aria-labelledby="account-register-title" aria-describedby="account-register-copy">
+        <div class="account-auth-shell">
+          <header class="account-auth-head">
+            <div>
+              <p class="eyebrow">NEW PLAYER</p>
+              <h2 id="account-register-title">创建账号</h2>
+              <p id="account-register-copy">使用邮箱验证码确认身份，完成后即可用邮箱和密码登录。</p>
+            </div>
+            <button id="account-register-close" class="account-register-close" type="button" aria-label="关闭账号注册">×</button>
+          </header>
+
+          <ol class="account-register-steps" aria-label="注册步骤">
+            <li class="is-active" data-register-step="details"><span>01</span><b>填写账号</b></li>
+            <li data-register-step="verify"><span>02</span><b>输入验证码</b></li>
+            <li data-register-step="complete"><span>03</span><b>完成注册</b></li>
+          </ol>
+
+          <form id="account-register-form" class="account-auth-form" autocomplete="on" novalidate>
+            <div id="account-register-details" class="account-register-panel">
+              <label class="account-auth-field" for="account-register-email">
+                <span>邮箱地址</span>
+                <input
+                  id="account-register-email"
+                  name="email"
+                  type="email"
+                  inputmode="email"
+                  autocomplete="email"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  maxlength="254"
+                  placeholder="name@example.com"
+                  required
+                />
+              </label>
+              <label class="account-auth-field" for="account-register-password">
+                <span>设置密码</span>
+                <input
+                  id="account-register-password"
+                  name="new-password"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="8"
+                  maxlength="72"
+                  placeholder="8–72 个字符"
+                  aria-describedby="account-register-message"
+                  required
+                />
+              </label>
+              <label class="account-auth-field" for="account-register-password-confirm">
+                <span>确认密码</span>
+                <input
+                  id="account-register-password-confirm"
+                  name="new-password-confirm"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="8"
+                  maxlength="72"
+                  placeholder="再次输入密码"
+                  aria-describedby="account-register-message"
+                  required
+                />
+              </label>
+              <button id="account-register-have-code" class="account-register-resend" type="button">我已有验证码</button>
+            </div>
+
+            <div id="account-register-verify" class="account-register-panel" hidden>
+              <div class="account-register-code-target">
+                <span>验证码已发送至</span>
+                <strong id="account-register-code-email">—</strong>
+              </div>
+              <label class="account-auth-field account-register-code-field" for="account-register-code">
+                <span>6 位验证码</span>
+                <input
+                  id="account-register-code"
+                  name="email-code"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  maxlength="6"
+                  pattern="[0-9]{6}"
+                  placeholder="000000"
+                  aria-describedby="account-register-message"
+                />
+              </label>
+              <button id="account-register-resend" class="account-register-resend" type="button">重新发送验证码</button>
+            </div>
+
+            <p id="account-register-message" class="account-auth-message" data-state="guest" role="status" aria-live="polite">填写后由 Supabase 向邮箱发送 6 位验证码。</p>
+            <div class="account-register-actions">
+              <button id="account-register-submit" type="submit">发送验证码</button>
+            </div>
+          </form>
+        </div>
+      </dialog>
+
+      <div id="hud" class="hud hidden" aria-live="polite">
+        <button id="lobby-editor-entry" class="lobby-editor-entry hidden" type="button">
+          <span>＋</span><b>装修大厅</b><small>B · 公共区与家园</small>
+        </button>
+        <div id="objective-card" class="objective-card hidden">
+          <span class="hud-kicker">当前目标</span>
+          <strong id="objective-text">寻找音乐自动贩卖机</strong>
+          <span id="progress-text"></span>
+        </div>
+        <div id="timer-card" class="timer-card hidden">
+          <span>剩余时间</span>
+          <strong id="timer-text">01:30</strong>
+        </div>
+        <div id="save-indicator" class="save-indicator">进度已保存</div>
+        <div id="multiplayer-hud" class="multiplayer-hud hidden" aria-live="polite">
+          <span class="multiplayer-live" aria-hidden="true"></span>
+          <b id="multiplayer-online">1 人在线</b>
+          <i></i>
+          <span id="multiplayer-channel">频道 0000</span>
+          <i></i>
+          <span id="multiplayer-view">第一人称</span>
+          <small id="multiplayer-view-hint">V 切换视角</small>
+        </div>
+        <section id="player-stats-panel" class="player-stats-panel" aria-label="玩家运行状态">
+          <header>
+            <div><span class="player-stats-live" aria-hidden="true"></span><b>玩家状态</b></div>
+            <small id="player-stats-summary">正在连接</small>
+          </header>
+          <div class="player-stats-labels" aria-hidden="true">
+            <span>玩家</span><span>状态</span><span>延时</span><span>FPS</span><span>REGION</span>
+          </div>
+          <div id="player-stats-list" class="player-stats-list"></div>
+        </section>
+        <button id="avatar-wardrobe-entry" class="avatar-wardrobe-entry hidden" type="button" aria-controls="avatar-wardrobe-dialog" aria-expanded="false">
+          <span aria-hidden="true">◎</span><b>更换形象</b><small>P · 随时换装</small>
+        </button>
+        <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><b></b><i></i></div>
+        <div id="interaction-prompt" class="interaction-prompt hidden">E · 交互</div>
+        <div id="toast" class="toast hidden"></div>
+        <div id="reset-meter" class="reset-meter hidden"><span></span><em>按住 R 重置本关</em></div>
+      </div>
+
+      <div id="creative-camera-help" class="creative-camera-help" aria-live="polite" aria-hidden="true">
+        <div><span class="creative-live" aria-hidden="true"></span><strong>创造飞行</strong><small>玩家留在原地</small></div>
+        <p><kbd>WASD</kbd> 水平移动 <i></i> <kbd>Space</kbd> 上升 <i></i> <kbd>Shift / C</kbd> 下降</p>
+        <p><kbd>Ctrl</kbd> 加速 <i></i> <kbd>按住右键 + 拖动</kbd> 自由观察</p>
+      </div>
+
+      <aside id="lobby-editor-panel" class="lobby-editor-panel" aria-label="大厅与家园装修器" aria-hidden="true">
+        <header class="lobby-editor-head">
+          <div>
+            <p class="eyebrow">SHARED PLAZA · CONTINUOUS HOMES</p>
+            <h2>大厅与家园</h2>
+          </div>
+          <button id="lobby-editor-exit" class="lobby-exit" type="button">完成装修</button>
+        </header>
+        <div class="lobby-presence" aria-live="polite">
+          <strong id="lobby-channel">频道 0000</strong>
+          <i aria-hidden="true"></i>
+          <span id="lobby-online">1 人在线</span>
+          <i aria-hidden="true"></i>
+          <span id="lobby-sync" data-state="connecting">正在连接</span>
+        </div>
+        <p class="lobby-editor-tip">中央广场属于频道公共区；外围家园连续相接，不显示地块分界。同一玩家可认领多块并连起来建造，场景只显示玩家昵称，不设置大门。访客可以参观和互动，但不能移动或删除家园物件；固定音乐贩卖机始终受系统保护。</p>
+        <section class="lobby-home-summary" aria-label="我的家园">
+          <div>
+            <span class="hud-kicker">我的家园</span>
+            <strong id="lobby-home-status">尚未认领领地</strong>
+            <small id="lobby-home-meta">选择外围家园范围开始建造，也可以继续扩建</small>
+          </div>
+          <button id="lobby-home-choose" type="button" aria-controls="lobby-home-dialog">选择领地</button>
+        </section>
+        <details id="lobby-prop-creator" class="lobby-prop-creator">
+          <summary>
+            <span><b>告诉 Codex 想创作什么</b><small>需求会发送到我的这台 Mac，并自动调用大厅物件 Skill</small></span>
+            <i aria-hidden="true">＋</i>
+          </summary>
+          <form id="lobby-prop-creator-form" novalidate>
+            <label class="lobby-prop-prompt" for="lobby-prop-prompt">
+              <span>物件描述</span>
+              <textarea
+                id="lobby-prop-prompt"
+                rows="4"
+                maxlength="600"
+                placeholder="例如：做一辆两个人能轮流驾驶的复古小汽车，按 E 上下车，车灯会随速度变亮"
+              ></textarea>
+            </label>
+            <div class="lobby-prop-creator-meta">
+              <p id="lobby-prop-worker" data-state="offline"><span aria-hidden="true"></span> 正在检查这台 Mac</p>
+              <small><span id="lobby-prop-prompt-count">0</span> / 600</small>
+            </div>
+            <p class="lobby-prop-review-note">Codex 会在隔离副本里生成并安全校验；通过后会自动合并、构建并部署到大厅目录，审核后台只保留发布历史和失败记录。</p>
+            <p id="lobby-prop-creator-status" data-state="idle" aria-live="polite">输入描述后即可提交创作任务</p>
+            <div class="lobby-prop-creator-actions">
+              <button id="lobby-prop-login" type="button" hidden>登录邮箱账号</button>
+              <button id="lobby-prop-submit" type="submit">发送到这台 Mac 的 Codex</button>
+            </div>
+            <section class="lobby-prop-jobs" aria-labelledby="lobby-prop-jobs-title">
+              <div class="lobby-prop-jobs-head">
+                <b id="lobby-prop-jobs-title">最近创作</b>
+                <button id="lobby-prop-refresh" type="button">刷新</button>
+              </div>
+              <div id="lobby-prop-job-list" class="lobby-prop-job-list">
+                <p class="lobby-prop-jobs-empty">登录后可查看当前账号的创作进度</p>
+              </div>
+            </section>
+          </form>
+        </details>
+        <details id="lobby-asset-upload" class="lobby-asset-upload">
+          <summary>
+            <span><b>上传我的 3D 物件</b><small>选择或拖入一个 GLB，上传后就能直接添加</small></span>
+            <i aria-hidden="true">＋</i>
+          </summary>
+          <form id="lobby-asset-upload-form" novalidate>
+            <label id="lobby-asset-dropzone" class="lobby-asset-dropzone" for="lobby-asset-file">
+              <input id="lobby-asset-file" class="sr-only" type="file" accept=".glb,model/gltf-binary">
+              <span aria-hidden="true">◇</span>
+              <b>选择或拖入 .glb 文件</b>
+              <small id="lobby-asset-file-meta">单个自包含模型 · 最大 15 MB</small>
+            </label>
+            <div class="lobby-asset-fields">
+              <label>
+                <span>物件名称</span>
+                <input id="lobby-asset-name" type="text" maxlength="40" autocomplete="off" placeholder="例如：云朵休闲椅">
+              </label>
+              <label>
+                <span>分类</span>
+                <input id="lobby-asset-category" type="text" maxlength="20" value="摆件" list="lobby-asset-categories" autocomplete="off">
+                <datalist id="lobby-asset-categories">
+                  <option value="摆件"></option>
+                  <option value="家具"></option>
+                  <option value="建筑"></option>
+                  <option value="灯具"></option>
+                  <option value="绿植"></option>
+                  <option value="载具"></option>
+                </datalist>
+              </label>
+            </div>
+            <p id="lobby-asset-account-note" class="lobby-asset-browser-note">游客物件库绑定此浏览器；使用邮箱账号登录后可跨设备继续添加。</p>
+            <div class="lobby-asset-upload-actions">
+              <p id="lobby-asset-upload-status" data-state="idle" aria-live="polite">选好模型后会先做快速检查</p>
+              <button id="lobby-asset-submit" type="submit" disabled>上传到我的物件</button>
+            </div>
+          </form>
+        </details>
+        <div id="lobby-catalog" class="lobby-catalog" aria-label="可添加物件"></div>
+        <section class="lobby-selection" aria-label="已选物件操作">
+          <div>
+            <span class="hud-kicker">当前选择</span>
+            <strong id="lobby-selected-name">尚未选择物件</strong>
+            <small id="lobby-selected-meta">拖动目录卡片到地面，或点击“添加”</small>
+            <span id="lobby-editor-empty" class="sr-only">未选择物件</span>
+          </div>
+          <div class="lobby-transform-actions">
+            <button id="lobby-rotate-left" type="button" disabled aria-label="向左旋转">↶<span>左转</span></button>
+            <button id="lobby-rotate-right" type="button" disabled aria-label="向右旋转">↷<span>右转</span></button>
+            <button id="lobby-scale-down" type="button" disabled aria-label="缩小">−<span>缩小</span></button>
+            <button id="lobby-scale-up" type="button" disabled aria-label="放大">＋<span>放大</span></button>
+            <button id="lobby-delete" class="danger" type="button" disabled aria-label="删除物件">×<span>删除</span></button>
+          </div>
+        </section>
+      </aside>
+
+      <dialog id="lobby-home-dialog" class="lobby-home-dialog" aria-labelledby="lobby-home-dialog-title">
+        <div class="lobby-home-dialog-shell">
+          <header>
+            <div>
+              <p class="eyebrow">CHOOSE YOUR HOME</p>
+              <h2 id="lobby-home-dialog-title">扩建与管理家园</h2>
+              <p>中央 3×3 区域是公共大厅；外围每格仅用于选择权限，游戏场景中连续无分界。你可以认领多格并连起来建造。</p>
+            </div>
+            <button id="lobby-home-close" type="button" aria-label="关闭家园选择">×</button>
+          </header>
+          <div class="lobby-home-legend" aria-hidden="true"><span data-kind="available">可认领</span><span data-kind="mine">我的家园（点击管理）</span><span data-kind="claimed">其他玩家</span></div>
+          <div id="lobby-home-grid" class="lobby-home-grid" role="grid" aria-label="家园领地地图"></div>
+          <footer>
+            <p id="lobby-home-dialog-status" aria-live="polite">选择一块标记为“可认领”的家园范围</p>
+            <button id="lobby-home-release" class="danger" type="button" disabled>先选择我的领地</button>
+          </footer>
+        </div>
+      </dialog>
+
+      <section id="terminal-overlay" class="panel-layer terminal-layer" aria-label="音乐自动贩卖机选关">
+        <div class="terminal-shell">
+          <div class="vending-brand-row" aria-hidden="true">
+            <div class="vending-brand"><span>MELODY</span><b>VEND</b><small>JUKEBOX GATE</small></div>
+            <div class="vending-price"><strong>¥100</strong><span>ONE PLAY</span></div>
+          </div>
+          <div class="terminal-topline"><span>投币 · 点歌 · 选关</span><span id="terminal-clock">COIN READY</span></div>
+          <div class="terminal-log">
+            <p>&gt; 投币口：等待 ¥100</p>
+            <p>&gt; 可选曲目 / 世界：<span id="indexed-count">3</span></p>
+            <p>&gt; 音乐传送通道：准备就绪</p>
+          </div>
+          <div class="world-card">
+            <div class="world-swatch" id="world-swatch"><span id="world-glyph">◇</span></div>
+            <div class="world-copy">
+              <p class="eyebrow">本次出货 / NOW PLAYING</p>
+              <h2 id="world-name">水晶步道</h2>
+              <p id="world-meta">by WhiteRoom Lab · 跑酷 · ★★☆☆☆ · 约 3 分钟</p>
+              <p id="world-description">越过漂浮平台，抵达尽头的信标。</p>
+            </div>
+          </div>
+          <div class="terminal-actions">
+            <button id="dive-btn" class="primary-btn">↵ 投币单人出发</button>
+            <button id="party-dive-btn" class="secondary-btn">◎ 同行合购</button>
+            <button id="reroll-btn" class="secondary-btn">↻ 换一罐</button>
+            <button id="replay-vending-music-btn" class="secondary-btn" type="button">♪ 重播音乐</button>
+            <button id="leave-terminal-btn" class="text-btn">Esc 离开贩卖机</button>
+          </div>
+        </div>
+      </section>
+
+      <aside id="party-panel" class="party-panel hidden" aria-live="polite" aria-label="同行闯关邀请">
+        <p class="eyebrow" id="party-kicker">同行邀请</p>
+        <strong id="party-title">有玩家邀请你一起闯关</strong>
+        <p id="party-detail">确认后将在倒计时结束时一起进入同一关卡。</p>
+        <div id="party-members" class="party-members"></div>
+        <div class="party-actions">
+          <button id="party-accept-btn" class="primary-btn" type="button">一起进入</button>
+          <button id="party-decline-btn" class="text-btn" type="button">暂不加入</button>
+          <button id="party-cancel-btn" class="text-btn hidden" type="button">取消同行</button>
+        </div>
+      </aside>
+
+      <section id="intro-overlay" class="intro-overlay" aria-live="assertive">
+        <span id="intro-type">跑酷世界</span>
+        <h2 id="intro-name">水晶步道</h2>
+        <p id="intro-objective">抵达终点信标</p>
+      </section>
+
+      <section id="door-overlay" class="panel-layer door-layer" aria-label="选择去向">
+        <div class="door-card">
+          <p class="eyebrow">PROCESS COMPLETE</p>
+          <h2>世界已完成</h2>
+          <div class="result-grid">
+            <div><span>关卡</span><strong id="result-name">—</strong></div>
+            <div><span>作者</span><strong id="result-author">—</strong></div>
+            <div><span>用时</span><strong id="result-time">00:00</strong></div>
+            <div><span>完成度</span><strong id="result-progress">100%</strong></div>
+          </div>
+          <p class="choice-copy">这扇门需要一个明确的返回值。</p>
+          <div class="door-actions">
+            <button id="return-btn" class="door-choice"><span>⌂</span><b>返回桌面</b><small>exit()</small></button>
+            <button id="continue-btn" class="door-choice accent"><span>→</span><b>继续漫游</b><small>next()</small></button>
+          </div>
+          <button id="close-door-btn" class="text-btn">Esc · 留在当前世界</button>
+        </div>
+      </section>
+
+      <section id="pause-overlay" class="panel-layer pause-layer" aria-label="暂停菜单">
+        <div class="pause-card">
+          <div class="pause-main">
+            <p class="eyebrow">SYSTEM SUSPENDED</p>
+            <h2>暂停</h2>
+            <button id="resume-btn" class="menu-btn selected">继续</button>
+            <button id="decorate-btn" class="menu-btn hub-only hidden">装修大厅 <small>快捷键 B</small></button>
+            <button id="reset-btn" class="menu-btn level-only">重置本关</button>
+            <button id="settings-btn" class="menu-btn">设置</button>
+            <button id="quit-game-btn" class="menu-btn danger">退出游戏</button>
+            <button id="unplug-btn" class="menu-btn danger level-only">强制拔线 · 返回桌面</button>
+          </div>
+          <div id="settings-panel" class="settings-panel">
+            <div class="settings-head"><button id="settings-back-btn" class="text-btn">← 返回</button><h3>设置</h3></div>
+            <label>鼠标灵敏度 <output id="sensitivity-value">1.0</output><input id="sensitivity-input" type="range" min="0.2" max="3" step="0.1" value="1" /></label>
+            <label>视野范围 <output id="fov-value">75°</output><input id="fov-input" type="range" min="60" max="100" step="1" value="75" /></label>
+            <label>主音量 <output id="volume-value">80%</output><input id="volume-input" type="range" min="0" max="1" step="0.05" value="0.8" /></label>
+            <label class="toggle-row"><span>头部晃动<small>移动时的轻微视角反馈</small></span><input id="headbob-input" type="checkbox" checked /></label>
+            <label class="toggle-row"><span>减少动态效果<small>缩短闪白与转场动画</small></span><input id="motion-input" type="checkbox" /></label>
+            <div id="settings-account" class="settings-account" data-state="loading" aria-label="玩家账号">
+              <span>玩家账号<small id="settings-account-status">正在检查账号</small></span>
+              <button id="settings-account-action" type="button" aria-controls="account-auth-dialog" aria-haspopup="dialog" disabled>邮箱登录</button>
+            </div>
+            <div class="settings-avatar-shortcut" aria-label="大厅玩家形象">
+              <span>大厅玩家形象<small id="settings-avatar-current">墨羽旅人</small></span>
+              <button id="settings-avatar-open" type="button">打开形象衣柜</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <dialog id="avatar-wardrobe-dialog" class="avatar-wardrobe-dialog" aria-labelledby="avatar-wardrobe-title">
+        <div id="avatar-wardrobe-shell" class="avatar-wardrobe-shell">
+          <header class="avatar-wardrobe-head">
+            <div><p class="eyebrow">LIVE WARDROBE</p><h2 id="avatar-wardrobe-title">形象衣柜</h2></div>
+            <button id="avatar-wardrobe-close" type="button" aria-label="关闭形象衣柜">×</button>
+          </header>
+          <p class="avatar-wardrobe-copy">大厅与装修模式中都可随时换装，不会退出多人联机。预置与上传角色都使用真实 GLB 预览。</p>
+          <div class="profile-settings avatar-wardrobe-profile" aria-label="大厅玩家形象">
+            <div class="profile-settings-title"><span>当前形象</span><small id="avatar-wardrobe-current">墨羽旅人</small></div>
+            <label>昵称<input id="nickname-input" type="text" maxlength="24" autocomplete="nickname" placeholder="访客" /></label>
+            <h3 class="avatar-section-title">预置角色 <small>真实 3D · 自动旋转</small></h3>
+            <div id="avatar-preset-list" class="avatar-preset-list" role="group" aria-label="选择预置角色">
+              <button class="avatar-preset-card" type="button" aria-pressed="false" data-avatar-id="preset-ink-chibi">
+                <span class="avatar-preset-preview" data-avatar-preview-id="preset-ink-chibi" data-preview-id="preset-ink-chibi" data-preview-kind="glb" role="img">
+                  <span class="avatar-preset-preview-viewport" data-preview-viewport></span>
+                  <span class="avatar-preset-preview-status" data-preview-status>准备 3D 预览</span>
+                </span>
+                <span class="avatar-preset-copy"><b>墨羽旅人</b><small>黑白系 Q 版 · Idle / Walk</small></span>
+              </button>
+              <button class="avatar-preset-card" type="button" aria-pressed="false" data-avatar-id="preset-cloud-doll">
+                <span class="avatar-preset-preview" data-avatar-preview-id="preset-cloud-doll" data-preview-id="preset-cloud-doll" data-preview-kind="glb" role="img">
+                  <span class="avatar-preset-preview-viewport" data-preview-viewport></span>
+                  <span class="avatar-preset-preview-status" data-preview-status>准备 3D 预览</span>
+                </span>
+                <span class="avatar-preset-copy"><b>云朵人偶</b><small>柔光系 Q 版 · Idle / Walk</small></span>
+              </button>
+            </div>
+            <section id="avatar-upload-panel" class="avatar-upload-panel" data-state="idle" aria-labelledby="avatar-upload-title">
+              <div class="avatar-upload-heading">
+                <span><b id="avatar-upload-title">上传 GLB 角色</b><small>登录账号后可上传，跨设备保留</small></span>
+                <span class="avatar-upload-limit">GLB · 8 MB</span>
+              </div>
+              <div class="avatar-upload-fields">
+                <label class="avatar-upload-file" for="avatar-upload-input">
+                  <input id="avatar-upload-input" type="file" accept=".glb,model/gltf-binary" />
+                  <span><b id="avatar-upload-file-label">选择 GLB 文件</b><small>自包含 glTF 2.0，可含骨骼与动画</small></span>
+                </label>
+                <label class="avatar-upload-name">角色名称<input id="avatar-upload-name-input" type="text" maxlength="64" autocomplete="off" placeholder="我的角色" /></label>
+              </div>
+              <div id="avatar-upload-local-preview" class="avatar-preset-preview avatar-upload-local-preview hidden" data-preview-id="local-avatar-preview" data-preview-kind="glb" role="img" aria-label="待上传角色 3D 预览">
+                <span class="avatar-preset-preview-viewport" data-preview-viewport></span>
+                <span class="avatar-preset-preview-status" data-preview-status>选择文件后显示 3D 预览</span>
+              </div>
+              <div class="avatar-upload-actions">
+                <button id="avatar-upload-submit" type="button" disabled>上传并立即使用</button>
+                <button id="avatar-upload-login" type="button">登录后上传</button>
+              </div>
+              <p id="avatar-upload-status" class="avatar-upload-status" role="status">登录邮箱账号后即可上传自己的 GLB 角色</p>
+            </section>
+            <section id="avatar-account-library" class="avatar-account-library hidden" aria-labelledby="avatar-account-library-title">
+              <h3 id="avatar-account-library-title" class="avatar-section-title">我的角色 <small>仅显示当前账号上传</small></h3>
+              <div id="avatar-account-list" class="avatar-preset-list avatar-account-list" role="group" aria-label="选择我上传的角色"></div>
+            </section>
+            <details class="custom-avatar-settings">
+              <summary>已有 Avatar 代码</summary>
+              <label>Avatar 代码<input id="avatar-input" type="text" maxlength="64" autocapitalize="none" spellcheck="false" placeholder="填写上传后获得的代码" /></label>
+            </details>
+            <button id="profile-apply-btn" class="profile-apply-btn" type="button">应用昵称或 Avatar 代码</button>
+            <p id="profile-status" class="profile-status" role="status">点击任意 3D 角色可立即更换，也可以上传自己的 GLB</p>
+          </div>
+        </div>
+      </dialog>
+
+      <div id="first-click-hint" class="first-click-hint hidden">点击画面锁定鼠标</div>
+    </div>
+  </body>
+</html>

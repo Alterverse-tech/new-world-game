@@ -31,7 +31,7 @@ async function createHarness(options = {}) {
   };
 }
 
-test('the diver portal is served at the site root with allowlisted assets only', async () => {
+test('the WhiteRoom game is served at the site root and the diver portal stays at /portal/', async () => {
   const harness = await createHarness();
   try {
     const index = await fetch(`${harness.baseUrl}/`);
@@ -39,9 +39,27 @@ test('the diver portal is served at the site root with allowlisted assets only',
     assert.match(index.headers.get('content-type'), /text\/html/);
     assert.equal(index.headers.get('x-content-type-options'), 'nosniff');
     const html = await index.text();
-    assert.match(html, /眠海 · 潜航门户/);
-    assert.match(html, /潜航协议/);
-    assert.match(html, /\/portal\/app\.js/);
+    assert.match(html, /<title>WhiteRoom · 白房间<\/title>/);
+    assert.match(html, /WHITEROOM OS · BUILD 1\.0/);
+    assert.match(html, /\.\/assets\/index-C4bZ867h-authfix\.js/);
+
+    const gameStyles = await fetch(`${harness.baseUrl}/assets/index-7Eajp7Zf.css`);
+    assert.equal(gameStyles.status, 200);
+    assert.match(gameStyles.headers.get('content-type'), /text\/css/);
+
+    const gameModel = await fetch(`${harness.baseUrl}/generated-assets/whiteroom-default-avatar-idle.glb`, {
+      method: 'HEAD',
+    });
+    assert.equal(gameModel.status, 200);
+    assert.equal(gameModel.headers.get('content-type'), 'model/gltf-binary');
+
+    const portalRedirect = await fetch(`${harness.baseUrl}/portal`, { redirect: 'manual' });
+    assert.equal(portalRedirect.status, 308);
+    assert.equal(portalRedirect.headers.get('location'), '/portal/');
+
+    const portal = await fetch(`${harness.baseUrl}/portal/`);
+    assert.equal(portal.status, 200);
+    assert.match(await portal.text(), /眠海 · 潜航门户/);
 
     const styles = await fetch(`${harness.baseUrl}/portal/styles.css`);
     assert.equal(styles.status, 200);
@@ -55,8 +73,8 @@ test('the diver portal is served at the site root with allowlisted assets only',
     const head = await fetch(`${harness.baseUrl}/index.html`, { method: 'HEAD' });
     assert.equal(head.status, 200);
 
-    // 白名单之外的路径一律 404（门户不做目录式服务，文件路径不由 URL 派生）
-    for (const forbidden of ['/portal/', '/portal/index.html', '/portal/missing.js', '/portal/styles.css.bak']) {
+    // 白名单之外的门户路径一律 404（文件路径不由 URL 派生）。
+    for (const forbidden of ['/portal/missing.js', '/portal/styles.css.bak']) {
       const response = await fetch(`${harness.baseUrl}${forbidden}`);
       assert.equal(response.status, 404, `${forbidden} must not be served`);
     }
