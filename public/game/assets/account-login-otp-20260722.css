@@ -10,6 +10,12 @@
   gap: 16px;
 }
 
+/* The legacy register action is hidden in the OTP flow, so the only
+   remaining primary action should span the full form width. */
+.account-auth-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .account-login-otp-target {
   display: grid;
   gap: 5px;
