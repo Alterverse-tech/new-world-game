@@ -31,6 +31,7 @@ state="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE
 
 parameters="$(python3 - "$target_sha" "$short_sha" <<'PYTHON'
 import json
+import shlex
 import sys
 
 target, short = sys.argv[1:]
@@ -86,7 +87,7 @@ trap - ERR
 printf 'ACTIVE=%s\nPREVIOUS=%s\nSYSTEMD_PID=%s\nLOCAL_HEALTH=200\n' "$release" "$previous" "$pid"
 '''
 command = command.replace('__TARGET__', target).replace('__SHORT__', short)
-print(json.dumps({'commands': [command]}))
+print(json.dumps({'commands': [f'bash -lc {shlex.quote(command)}']}))
 PYTHON
 )"
 
