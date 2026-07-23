@@ -17,8 +17,10 @@
     <script src="./assets/account-reset-20260721.js?v=reset1" defer></script>
     <script src="./assets/player-stats-20260721.js?v=stats4"></script>
     <script src="./assets/game-experience-20260721.js?v=game1" defer></script>
+    <script src="./assets/entry-terminal-20260723.js?v=entry1" defer></script>
     <script type="module" crossorigin src="./assets/index-BICRz_YN.js?v=world-cycle1"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-7Eajp7Zf.css">
+    <link rel="stylesheet" href="./assets/entry-terminal-20260723.css?v=entry1">
     <link rel="stylesheet" href="./assets/player-stats-20260721.css?v=stats4">
     <link rel="stylesheet" href="./assets/account-login-otp-20260722.css?v=otp3">
     <link rel="stylesheet" href="./assets/account-register-20260721.css?v=otp5">
@@ -32,10 +34,18 @@
       <div id="vignette" class="vignette" aria-hidden="true"></div>
 
       <section id="boot-overlay" class="panel-layer visible" aria-label="游戏开始">
-        <div class="boot-card">
-          <p class="eyebrow">WHITEROOM OS · BUILD 1.0</p>
-          <h1>WHITE<span>ROOM</span></h1>
-          <p class="boot-copy">一间白房间。<br />一台会唱歌、也能通向无数世界的自动贩卖机。</p>
+        <div class="entry-frame">
+          <div class="entry-grid" aria-hidden="true"></div>
+          <div class="entry-ambient" aria-hidden="true"></div>
+          <div class="entry-scan" aria-hidden="true"></div>
+
+          <div class="entry-boot-log" aria-label="系统启动状态">
+            <p><span class="entry-live-dot">●</span> ALTVERSE OS · BUILD 1.0</p>
+            <p>WORLDS&nbsp;&nbsp;&nbsp;平行世界索引 · 系统保护中 · <b>OK</b></p>
+            <button id="entry-account-log" type="button">ACCOUNT&nbsp;&nbsp;<span id="entry-account-log-copy">正在检查账号 · CHECKING</span></button>
+            <p>REGION&nbsp;&nbsp;&nbsp;CN · 60 FPS · <b>READY</b></p>
+          </div>
+
           <section id="account-panel" class="account-panel" data-state="loading" aria-label="玩家账号">
             <div class="account-identity">
               <span class="account-provider-mark" aria-hidden="true">@</span>
@@ -46,32 +56,59 @@
               <button id="account-signout-btn" class="account-signout-btn hidden" type="button">退出登录</button>
             </div>
           </section>
-          <form id="lobby-channel-form" class="lobby-channel-form" novalidate>
-            <label for="lobby-channel-input">
-              <span>大厅频道号</span>
-              <small>输入相同频道号，才能见到同一批玩家和物件</small>
-            </label>
-            <div class="lobby-channel-control">
-              <span aria-hidden="true">#</span>
-              <input
-                id="lobby-channel-input"
-                name="channel"
-                type="text"
-                value="0000"
-                inputmode="numeric"
-                autocomplete="off"
-                enterkeyhint="go"
-                minlength="4"
-                maxlength="12"
-                pattern="[0-9]{4,12}"
-                aria-describedby="lobby-channel-status"
-                required
-              />
-              <button id="start-btn" class="primary-btn" type="submit">进入频道</button>
-            </div>
-            <p id="lobby-channel-status" class="lobby-channel-status" aria-live="polite">4–12 位数字 · 原共享大厅保留在 0000</p>
-          </form>
-          <p class="control-line">WASD 移动 · 鼠标观察 · 滚轮缩放第三人称 · Shift 冲刺 · Space 跳跃 · E 交互 · B 装修大厅 · V 切换视角 · P 更换形象 · Esc 暂停 · F 全屏</p>
+
+          <main class="boot-card">
+            <h1>ALT<span>VERSE</span></h1>
+            <p class="entry-wordmark-caption">PARALLEL WORLDS · ONE PLAZA</p>
+            <p class="boot-copy">每一串数字背后，都藏着一个平行宇宙。推门进去，有人正等你。</p>
+
+            <form id="lobby-channel-form" class="lobby-channel-form" novalidate>
+              <label class="sr-only" for="lobby-channel-input">大厅频道号，输入 4 至 12 位数字</label>
+              <div class="lobby-channel-control">
+                <span class="entry-terminal-mark" aria-hidden="true">&gt;_</span>
+                <span class="entry-channel-label" aria-hidden="true">频道</span>
+                <input
+                  id="lobby-channel-input"
+                  name="channel"
+                  type="text"
+                  value="0000"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  enterkeyhint="go"
+                  minlength="4"
+                  maxlength="12"
+                  pattern="[0-9]{4,12}"
+                  aria-describedby="lobby-channel-status"
+                  required
+                />
+                <span class="entry-channel-caret" aria-hidden="true"></span>
+                <button id="start-btn" class="primary-btn" type="submit" data-action="checking">正在同步</button>
+              </div>
+              <div class="entry-recent-channels" aria-label="最近频道">
+                <span>最近</span>
+                <button type="button" data-entry-channel="0000"><b>#0000</b><small>共享大厅</small></button>
+                <button id="entry-recent-secondary" type="button" data-entry-channel="8848"><b>#8848</b></button>
+                <p id="lobby-channel-status" class="lobby-channel-status" aria-live="polite">4–12 位数字 · 同号同厅</p>
+              </div>
+            </form>
+
+            <p id="entry-login-lock-note" class="entry-login-lock-note">
+              需要登录才能进入频道 · 形象与家园将自动保存
+              <button id="entry-login-inline" type="button">去登录 →</button>
+            </p>
+          </main>
+
+          <footer class="entry-status-bar">
+            <p class="control-line">WASD 移动 · SPACE 跳跃 · V 视角 · B 装修 · H 键位</p>
+            <p>PING <b>42MS</b> · REGION CN · 共享大厅 <b>0000</b></p>
+          </footer>
+
+          <div id="entry-transition" class="entry-transition" hidden aria-live="polite">
+            <div class="entry-door" aria-hidden="true"><span></span></div>
+            <p>OPENING WORLD <b id="entry-transition-channel">#0000</b></p>
+            <div class="entry-progress" aria-hidden="true"><span></span></div>
+            <small>同步玩家与物件 · 门后即大厅</small>
+          </div>
         </div>
       </section>
 
@@ -80,11 +117,16 @@
           <header class="account-auth-head">
             <div>
               <p class="eyebrow">PLAYER ACCOUNT</p>
-              <h2 id="account-auth-title">邮箱验证码登录</h2>
-              <p id="account-auth-copy">无需密码，Supabase 会向你的邮箱发送 6 位验证码。</p>
+              <h2 id="account-auth-title">登录，让 Altverse 记住你</h2>
+              <p id="account-auth-copy">无需密码，我们会向你的邮箱发送 6 位验证码。</p>
             </div>
             <button id="account-auth-close" type="button" aria-label="关闭邮箱登录">×</button>
           </header>
+          <ul class="entry-account-benefits" aria-label="登录后的同步能力">
+            <li>形象与套装跨设备同步</li>
+            <li>家园与物件永久保存</li>
+            <li>频道历史一键回去</li>
+          </ul>
           <form id="account-auth-form" class="account-auth-form" autocomplete="on" novalidate>
             <label class="account-auth-field account-login-email-field" for="account-email-input">
               <span>邮箱地址</span>
