@@ -41,7 +41,11 @@ test('the WhiteRoom game is served at the site root and the diver portal stays a
     const html = await index.text();
     assert.match(html, /<title>WhiteRoom · 白房间<\/title>/);
     assert.match(html, /WHITEROOM OS · BUILD 1\.0/);
-    assert.match(html, /\.\/assets\/index-C4bZ867h-authfix\.js/);
+    const gameScriptPath = html.match(/\.\/(assets\/index-[A-Za-z0-9_-]+\.js)(?:\?[^"']*)?/)?.[1];
+    assert.ok(gameScriptPath, 'game index must reference a hashed JavaScript bundle');
+    const gameScript = await fetch(`${harness.baseUrl}/${gameScriptPath}`);
+    assert.equal(gameScript.status, 200);
+    assert.match(gameScript.headers.get('content-type'), /text\/javascript/);
 
     const gameStyles = await fetch(`${harness.baseUrl}/assets/index-7Eajp7Zf.css`);
     assert.equal(gameStyles.status, 200);

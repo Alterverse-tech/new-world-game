@@ -87,10 +87,10 @@ GET /healthz   健康检查
 - **审势台（`public/admin/`，挂载于 `/admin/`）**——管理端：梦域（关卡）与
   AI 梦物审核（沉重律裁定）、隔离试玩预览，以及「眠海运维」面板：手动沉没巡查、
   宣告/查看梦灾。管理员令牌仅驻留页面内存。
-- **模型素材生产台（`public/foundry/`，挂载于 `/foundry/`）**——开发侧的计划编排、
-  任务状态、GLB 实时预览、动作绑定回退、Manifest 与本地文件就绪检查。
+- **模型素材生产台 API（`/api/foundry/*`）**——开发侧的计划编排、任务状态与 Manifest 快照。
+  服务端保留 `/foundry/` 静态工作台路由，但当前仓库尚未跟踪 `public/foundry/` 页面，访问会返回 404。
 
-三者均为白名单式静态服务（不做目录遍历），亦不引用任何 CDN 资源。
+已跟踪的门户与审势台均为白名单式静态服务（不做目录遍历），亦不引用任何 CDN 资源。
 
 ## 3D 素材流水线
 
@@ -209,6 +209,27 @@ GLB 梦物的体积/纹理像素/三角形、给出最重条目 Top 榜、核算
 上传内容会检查 ZIP 路径、文件规模、关卡 Schema、脚本危险能力以及 GLB/glTF 结构与资源预算。自动校验不能替代人工试玩和内容审核——沉重律的最终裁量权在管理员。
 
 图腾由服务端密钥对 ownerId 确定性派生并持久化：请妥善保管 `WHITEROOM_DREAMSEA_SECRET`（或其上游 `WHITEROOM_LOBBY_OWNER_SECRET` / `WHITEROOM_ADMIN_TOKEN`），密钥轮换不会改变已凝成的图腾（记录以首次凝成为准）。
+
+## WhiteRoom 游戏前端源码
+
+完整的 Vite + TypeScript 游戏前端位于 `apps/game/`。它是当前 `public/game/` 压缩成品的可读源码基线，包含 Three.js 场景、UGC runtime、测试和构建配置。
+
+当前职责边界：
+
+- `apps/game/`：后续功能开发、调试、测试与构建的源码。
+- `public/game/`：服务器当前实际提供的生产成品。本次源码恢复不会自动覆盖它。
+- 从 `apps/game/dist/` 切换到 `public/game/` 前，需另行完成线上增量回迁、浏览器试玩与发布验收。
+
+首次安装及日常校验：
+
+```bash
+npm --prefix apps/game ci
+npm run test:game
+npm run lint:game
+npm run build:game
+```
+
+也可用 `npm run check:game` 顺序执行游戏前端的测试、lint 和生产构建。
 
 ## 测试
 

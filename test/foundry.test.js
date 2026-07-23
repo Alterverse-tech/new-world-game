@@ -34,7 +34,7 @@ async function createHarness() {
   };
 }
 
-test('foundry workbench is allowlisted and exposes an honest empty snapshot', async () => {
+test('foundry API exposes an honest empty snapshot while the untracked workbench shell stays unavailable', async () => {
   const harness = await createHarness();
   try {
     const redirect = await fetch(`${harness.baseUrl}/foundry`, { redirect: 'manual' });
@@ -42,17 +42,7 @@ test('foundry workbench is allowlisted and exposes an honest empty snapshot', as
     assert.equal(redirect.headers.get('location'), '/foundry/');
 
     const page = await fetch(`${harness.baseUrl}/foundry/`);
-    assert.equal(page.status, 200);
-    assert.match(page.headers.get('content-type'), /text\/html/);
-    const html = await page.text();
-    assert.match(html, /WhiteRoom Foundry/);
-    assert.match(html, /模型素材生产台/);
-    assert.match(html, /\/foundry\/app\.js/);
-    assert.doesNotMatch(html, /cdn\.tailwindcss|code\.iconify/);
-
-    const script = await fetch(`${harness.baseUrl}/foundry/app.js`);
-    assert.equal(script.status, 200);
-    assert.match(await script.text(), /api\/foundry\/snapshot/);
+    assert.equal(page.status, 404);
 
     const snapshot = await fetch(`${harness.baseUrl}/api/foundry/snapshot`);
     assert.equal(snapshot.status, 200);

@@ -313,6 +313,14 @@ test('lobby asset GLB validation rejects external, active-scene, decoder, struct
       },
     });
 
+    const animated = await uploadAsset(harness, owner.cookie, makeGlb({ mutateDocument(document) {
+      document.animations = [{
+        samplers: [{ input: 1, output: 0 }],
+        channels: [{ sampler: 0, target: { node: 0, path: 'translation' } }],
+      }];
+    } }), { name: 'animation' });
+    assert.equal(animated.status, 201);
+
     const cases = [
       ['malformed', Buffer.from('not a glb'), 'invalid_lobby_asset_glb'],
       ['external', makeGlb({ bufferUri: 'https://example.com/model.bin' }), 'lobby_asset_external_resource'],
@@ -356,12 +364,6 @@ test('lobby asset GLB validation rejects external, active-scene, decoder, struct
       ['reachable-mesh-reuse', makeGlb({ nodeCount: 2, triangleCount: 25_001, mutateDocument(document) {
         document.nodes[1].mesh = 0;
         document.scenes[0].nodes = [0, 1];
-      } }), 'lobby_asset_budget_exceeded'],
-      ['animation', makeGlb({ mutateDocument(document) {
-        document.animations = [{
-          samplers: [{ input: 1, output: 0 }],
-          channels: [{ sampler: 0, target: { node: 0, path: 'translation' } }],
-        }];
       } }), 'lobby_asset_budget_exceeded'],
       ['skin', makeGlb({ mutateDocument(document) {
         document.skins = [{ joints: [0] }];

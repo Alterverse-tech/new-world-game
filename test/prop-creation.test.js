@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, open, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -118,6 +118,30 @@ async function createHarness(options = {}) {
   };
 }
 
+async function withUnsupportedDirectorySync(run) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'whiteroom-directory-sync-probe-'));
+  const handle = await open(directory, 'r');
+  const prototype = Object.getPrototypeOf(handle);
+  const originalSync = prototype.sync;
+  await handle.close();
+  await rm(directory, { recursive: true, force: true });
+
+  prototype.sync = async function sync() {
+    const info = await this.stat();
+    if (info.isDirectory()) {
+      const error = new Error('Directory fsync is unsupported');
+      error.code = process.platform === 'win32' ? 'EPERM' : 'ENOTSUP';
+      throw error;
+    }
+    return originalSync.call(this);
+  };
+  try {
+    return await run();
+  } finally {
+    prototype.sync = originalSync;
+  }
+}
+
 function setCookiePair(response) {
   const header = response.headers.get('set-cookie');
   return header?.split(';', 1)[0] ?? '';
@@ -232,6 +256,26 @@ function publicationRelease(overrides = {}) {
     ...overrides,
   };
 }
+
+test('prop creation persists a record when directory fsync is unsupported', async () => {
+  await withUnsupportedDirectorySync(async () => {
+    const harness = await createHarness();
+    try {
+      const cookie = await login(harness, 'token-a');
+      const response = await submit(harness, cookie);
+      assert.equal(response.status, 202);
+      const job = (await response.json()).job;
+      const stored = JSON.parse(await readFile(
+        path.join(harness.dataDirectory, 'prop-creations', 'records', `${job.id}.json`),
+        'utf8',
+      ));
+      assert.equal(stored.id, job.id);
+      assert.equal(stored.status, 'queued');
+    } finally {
+      await harness.close();
+    }
+  });
+});
 
 test('prop creation feature requires an email account, same origin, and a configured local Codex bridge', async () => {
   const harness = await createHarness();

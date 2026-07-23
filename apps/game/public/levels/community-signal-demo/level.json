@@ -1,0 +1,23 @@
+{
+  "schema": "wr-level",
+  "schemaVersion": 1,
+  "engineApi": "1",
+  "id": "community-signal-demo",
+  "name": "双星校准",
+  "version": "1.0.0",
+  "author": { "name": "WhiteRoom Community" },
+  "description": "踩亮两座压力校准台，使漂浮的双星重新同步。",
+  "language": "zh-CN",
+  "type": "puzzle",
+  "winCondition": { "type": "puzzle", "flags": ["amber", "cyan"] },
+  "objective": "踩亮琥珀与青色两座校准台",
+  "difficulty": 1,
+  "estimatedMinutes": 2,
+  "spawn": { "position": [0, 0.02, 7], "yawDeg": 0 },
+  "door": null,
+  "killY": -8,
+  "entry": "main.js",
+  "cover": "cover.png",
+  "contentRating": "everyone",
+  "credits": []
+}

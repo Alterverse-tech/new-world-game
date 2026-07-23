@@ -8,7 +8,11 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test --test-concurrency=1"
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test:game": "npm --prefix apps/game test",
+    "lint:game": "npm --prefix apps/game run lint",
+    "build:game": "npm --prefix apps/game run build",
+    "check:game": "npm run test:game && npm run lint:game && npm run build:game"
   },
   "dependencies": {
     "acorn": "^8.15.0",

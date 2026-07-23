@@ -451,12 +451,22 @@ function leaseIsActive(record, at) {
   return Number.isFinite(expiresAt) && expiresAt > at;
 }
 
+function isUnsupportedDirectorySyncError(error) {
+  return (
+    (process.platform === 'win32' && error?.code === 'EPERM')
+    || ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'].includes(error?.code)
+  );
+}
+
 async function syncDirectory(directory) {
-  const handle = await open(directory, 'r');
+  let handle;
   try {
+    handle = await open(directory, 'r');
     await handle.sync();
+  } catch (error) {
+    if (!isUnsupportedDirectorySyncError(error)) throw error;
   } finally {
-    await handle.close();
+    await handle?.close();
   }
 }
 

@@ -26,6 +26,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm --prefix apps/game ci
+      - run: npm run check:game
       - run: npm test
 
   deploy:

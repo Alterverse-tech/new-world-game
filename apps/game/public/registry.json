@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-07-11T00:00:00.000Z",
+  "engineApi": "1",
+  "levels": [
+    {
+      "id": "community-signal-demo",
+      "name": "双星校准",
+      "author": { "name": "WhiteRoom Community" },
+      "status": "approved",
+      "type": "puzzle",
+      "winCondition": { "type": "puzzle", "flags": ["amber", "cyan"] },
+      "objective": "踩亮琥珀与青色两座校准台",
+      "description": "一个随 registry 动态发现、通过 Level SDK 即时构建的社区示范世界。",
+      "difficulty": 1,
+      "estimatedMinutes": 2,
+      "path": "/levels/community-signal-demo",
+      "hash": "demo-v1"
+    }
+  ]
+}

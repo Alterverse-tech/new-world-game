@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "gamePrompt": "WhiteRoom collaborative minimalist lobby decorating catalog, bright neutral gallery, original low-poly furniture, no text, no logos",
+  "assets": [
+    {
+      "id": "glb-lounge-chair",
+      "role": "prop",
+      "name": "云朵休闲椅",
+      "url": "/generated-assets/glb-lounge-chair.glb",
+      "format": "glb"
+    },
+    {
+      "id": "glb-pedestal-lamp",
+      "role": "prop",
+      "name": "环光落地灯",
+      "url": "/generated-assets/glb-pedestal-lamp.glb",
+      "format": "glb"
+    },
+    {
+      "id": "glb-luminous-plant",
+      "role": "prop",
+      "name": "微光盆栽",
+      "url": "/generated-assets/glb-luminous-plant.glb",
+      "format": "glb"
+    },
+    {
+      "id": "glb-yellow-sports-car",
+      "role": "prop",
+      "name": "黄色跑车",
+      "url": "/generated-assets/glb-yellow-sports-car.glb",
+      "format": "glb"
+    },
+    {
+      "id": "whiteroom-default-avatar",
+      "role": "player",
+      "name": "WhiteRoom 默认旅人",
+      "url": "/generated-assets/whiteroom-default-avatar.glb",
+      "format": "glb",
+      "source": "gemini_image_then_tripo_image_to_model",
+      "assetKind": "character",
+      "rigged": true,
+      "rigType": "biped",
+      "animationClips": [
+        {
+          "name": "idle",
+          "url": "/generated-assets/whiteroom-default-avatar-idle.glb",
+          "format": "glb"
+        },
+        {
+          "name": "walk",
+          "url": "/generated-assets/whiteroom-default-avatar-walk.glb",
+          "format": "glb"
+        }
+      ],
+      "animationSource": "tripo_retarget_clips"
+    },
+    {
+      "id": "preset-ink-chibi",
+      "role": "player",
+      "name": "墨羽旅人",
+      "url": "/generated-assets/whiteroom-avatar-ink-chibi.glb",
+      "format": "glb",
+      "assetKind": "character",
+      "rigged": true,
+      "sha256": "38311cc7ec1165e227e6d01d501f780af488e0a6ec8ab92c81969fac0b7c1f6e",
+      "bytes": 837252,
+      "animationClips": 2
+    },
+    {
+      "id": "preset-cloud-doll",
+      "role": "player",
+      "name": "云朵人偶",
+      "url": "/generated-assets/whiteroom-avatar-cloud-doll.glb",
+      "format": "glb",
+      "assetKind": "character",
+      "rigged": true,
+      "sha256": "2d3228f934a4110ab69e688f6b10d85f20d202abe19f4f60fccfaca1ecc0a368",
+      "bytes": 793232,
+      "animationClips": 1
+    }
+  ],
+  "usage": "Load each asset url with Three.js GLTFLoader; keep a local primitive fallback per asset in case loading fails. The default player uses its main rigged GLB plus separate idle/walk retarget clip GLBs. Built-in preset avatars are bundled same-origin GLBs and do not consume remote custom-avatar slots."
+}
