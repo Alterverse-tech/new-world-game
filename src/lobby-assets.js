@@ -3,6 +3,7 @@ import { mkdir, open, readFile, readdir, rename, unlink } from 'node:fs/promises
 import path from 'node:path';
 import { validateAvatarGlb } from './avatar.js';
 import { HttpError } from './errors.js';
+import { syncDirectory } from './fsync.js';
 import { FixedWindowCounter } from './lobby.js';
 import { atomicWriteJson } from './store.js';
 
@@ -176,18 +177,6 @@ function storedRecordIsValid(record, expectedId) {
         return false;
       }
     })();
-}
-
-async function syncDirectory(directory) {
-  let handle;
-  try {
-    handle = await open(directory, 'r');
-    await handle.sync();
-  } catch {
-    // Directory fsync is not available on every supported filesystem.
-  } finally {
-    await handle?.close();
-  }
 }
 
 async function writeImmutable(filePath, buffer) {

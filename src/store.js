@@ -1,21 +1,10 @@
 import { open, mkdir, readFile, readdir, rename, rm, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { GRAVITY_LAW_LORE, HttpError } from './errors.js';
+import { syncDirectory } from './fsync.js';
 import { LEVEL_ID_PATTERN } from './validator.js';
 
 const VALID_STATUSES = new Set(['pending', 'approved', 'rejected']);
-
-async function syncDirectory(directory) {
-  let handle;
-  try {
-    handle = await open(directory, 'r');
-    await handle.sync();
-  } catch {
-    // Directory fsync is not available on every supported filesystem.
-  } finally {
-    await handle?.close();
-  }
-}
 
 export async function atomicWriteJson(filePath, value, mode = 0o600) {
   const directory = path.dirname(filePath);

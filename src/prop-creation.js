@@ -13,6 +13,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { HttpError } from './errors.js';
+import { syncDirectory } from './fsync.js';
 import { atomicWriteJson } from './store.js';
 
 export const PROP_CREATION_ID_PATTERN = /^propjob-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -449,25 +450,6 @@ function publicationRollback(value) {
 function leaseIsActive(record, at) {
   const expiresAt = Date.parse(record.lease?.expiresAt ?? '');
   return Number.isFinite(expiresAt) && expiresAt > at;
-}
-
-function isUnsupportedDirectorySyncError(error) {
-  return (
-    (process.platform === 'win32' && error?.code === 'EPERM')
-    || ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'].includes(error?.code)
-  );
-}
-
-async function syncDirectory(directory) {
-  let handle;
-  try {
-    handle = await open(directory, 'r');
-    await handle.sync();
-  } catch (error) {
-    if (!isUnsupportedDirectorySyncError(error)) throw error;
-  } finally {
-    await handle?.close();
-  }
 }
 
 export class PropCreationStore {

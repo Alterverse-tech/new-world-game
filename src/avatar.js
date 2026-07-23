@@ -3,6 +3,7 @@ import { open, mkdir, readFile, readdir, rename, rm, stat, unlink } from 'node:f
 import path from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { HttpError } from './errors.js';
+import { syncDirectory } from './fsync.js';
 import { FixedWindowCounter } from './lobby.js';
 import { atomicWriteJson } from './store.js';
 
@@ -1140,18 +1141,6 @@ function publicRecord(record) {
     uploadedAt: record.uploadedAt,
     stats: structuredClone(record.stats),
   };
-}
-
-async function syncDirectory(directory) {
-  let handle;
-  try {
-    handle = await open(directory, 'r');
-    await handle.sync();
-  } catch {
-    // Directory fsync is not available on every supported filesystem.
-  } finally {
-    await handle?.close();
-  }
 }
 
 async function writeImmutable(filePath, buffer) {
