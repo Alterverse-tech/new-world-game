@@ -18,6 +18,7 @@
     <script src="./assets/player-stats-20260721.js?v=stats4"></script>
     <script src="./assets/game-experience-20260721.js?v=game1" defer></script>
     <script src="./assets/entry-terminal-20260723.js?v=entry1" defer></script>
+    <script src="./assets/hud-fusion-20260723.js?v=hud1" defer></script>
     <script type="module" crossorigin src="./assets/index-BICRz_YN.js?v=world-cycle1"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-7Eajp7Zf.css">
     <link rel="stylesheet" href="./assets/entry-terminal-20260723.css?v=entry1">
@@ -25,6 +26,7 @@
     <link rel="stylesheet" href="./assets/account-login-otp-20260722.css?v=otp3">
     <link rel="stylesheet" href="./assets/account-register-20260721.css?v=otp5">
     <link rel="stylesheet" href="./assets/account-reset-20260721.css?v=reset1">
+    <link rel="stylesheet" href="./assets/hud-fusion-20260723.css?v=hud1">
   </head>
   <body>
     <div id="app">
@@ -366,8 +368,9 @@
 
       <div id="hud" class="hud hidden" aria-live="polite">
         <button id="lobby-editor-entry" class="lobby-editor-entry hidden" type="button">
-          <span>＋</span><b>装修大厅</b><small>B · 公共区与家园</small>
+          <span aria-hidden="true">✚</span><b>装修大厅</b><small>B</small>
         </button>
+        <button id="hud-help-entry" class="hud-help-entry hidden" type="button" aria-controls="hud-help-overlay" aria-expanded="false" aria-label="打开键位帮助">?</button>
         <div id="objective-card" class="objective-card hidden">
           <span class="hud-kicker">当前目标</span>
           <strong id="objective-text">寻找音乐自动贩卖机</strong>
@@ -378,19 +381,21 @@
           <strong id="timer-text">01:30</strong>
         </div>
         <div id="save-indicator" class="save-indicator">进度已保存</div>
-        <div id="multiplayer-hud" class="multiplayer-hud hidden" aria-live="polite">
+        <button id="multiplayer-hud" class="multiplayer-hud hidden" type="button" aria-live="polite" aria-controls="player-stats-panel" aria-expanded="false">
           <span class="multiplayer-live" aria-hidden="true"></span>
           <b id="multiplayer-online">1 人在线</b>
           <i></i>
           <span id="multiplayer-channel">频道 0000</span>
-          <i></i>
+          <i class="multiplayer-view-separator"></i>
           <span id="multiplayer-view">第一人称</span>
           <small id="multiplayer-view-hint">V 切换视角</small>
-        </div>
-        <section id="player-stats-panel" class="player-stats-panel" aria-label="玩家运行状态">
+          <span class="hud-disclosure" aria-hidden="true">▼</span>
+        </button>
+        <section id="player-stats-panel" class="player-stats-panel" aria-label="在线玩家" aria-hidden="true" hidden>
           <header>
-            <div><span class="player-stats-live" aria-hidden="true"></span><b>玩家状态</b></div>
+            <div><span class="player-stats-live" aria-hidden="true"></span><b>在线玩家</b><kbd>TAB</kbd></div>
             <small id="player-stats-summary">正在连接</small>
+            <button id="player-stats-close" type="button" aria-label="关闭在线玩家">×</button>
           </header>
           <div class="player-stats-labels" aria-hidden="true">
             <span>玩家</span><span>状态</span><span>延时</span><span>FPS</span><span>REGION</span>
@@ -398,8 +403,34 @@
           <div id="player-stats-list" class="player-stats-list"></div>
         </section>
         <button id="avatar-wardrobe-entry" class="avatar-wardrobe-entry hidden" type="button" aria-controls="avatar-wardrobe-dialog" aria-expanded="false">
-          <span aria-hidden="true">◎</span><b>更换形象</b><small>P · 随时换装</small>
+          <span aria-hidden="true"></span><b>更换形象</b><small>换形象 · P</small>
         </button>
+        <button id="hud-map-entry" class="hud-map-entry hidden" type="button" aria-controls="hud-map-panel" aria-expanded="false" aria-label="打开地图与领地">
+          <span class="hud-map-plaza" aria-hidden="true"></span>
+          <span class="hud-map-player" aria-hidden="true"></span>
+          <small>地图 · M</small>
+        </button>
+        <section id="hud-map-panel" class="hud-map-panel" aria-label="地图与传送" aria-hidden="true" hidden>
+          <header><strong>地图与传送</strong><kbd>M</kbd><button id="hud-map-close" type="button" aria-label="关闭地图">×</button></header>
+          <div class="hud-map-canvas" aria-hidden="true">
+            <span class="hud-map-zone">广场</span><i></i><i></i><i></i><b></b>
+          </div>
+          <div class="hud-map-row"><span>◈</span><p><b>中央广场</b><small>频道公共区</small></p><button type="button" disabled>当前位置</button></div>
+          <div class="hud-map-row"><span>◇</span><p><b>我的家园</b><small>领地选择与管理</small></p><button id="hud-map-home-action" type="button">管理领地</button></div>
+        </section>
+        <section id="hud-help-overlay" class="hud-help-overlay" aria-label="键位一览" aria-hidden="true" hidden>
+          <div class="hud-help-card">
+            <header><strong>键位一览</strong><small>H / ? 呼出 · 点击空白处关闭</small><button id="hud-help-close" type="button" aria-label="关闭键位帮助">×</button></header>
+            <div class="hud-help-grid">
+              <span>水平移动<kbd>WASD</kbd></span><span>更换形象<kbd>P</kbd></span>
+              <span>跳跃 / 创造上升<kbd>SPACE</kbd></span><span>地图与领地<kbd>M</kbd></span>
+              <span>冲刺 / 创造下降<kbd>SHIFT</kbd></span><span>创造加速<kbd>CTRL</kbd></span>
+              <span>装修大厅<kbd>B</kbd></span><span>切换视角<kbd>V</kbd></span>
+              <span>交互<kbd>E</kbd></span><span>在线玩家<kbd>TAB</kbd></span>
+              <span>键位帮助<kbd>H</kbd></span><span>关闭 / 暂停<kbd>ESC</kbd></span>
+            </div>
+          </div>
+        </section>
         <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><b></b><i></i></div>
         <div id="interaction-prompt" class="interaction-prompt hidden">E · 交互</div>
         <div id="toast" class="toast hidden"></div>
@@ -436,6 +467,8 @@
           </div>
           <button id="lobby-home-choose" type="button" aria-controls="lobby-home-dialog">选择领地</button>
         </section>
+        <p class="lobby-editor-section-label">新建物件 · 完成后进入物件库</p>
+        <div class="lobby-create-actions">
         <details id="lobby-prop-creator" class="lobby-prop-creator">
           <summary>
             <span><b>告诉 Codex 想创作什么</b><small>需求会发送到我的这台 Mac，并自动调用大厅物件 Skill</small></span>
@@ -509,6 +542,11 @@
             </div>
           </form>
         </details>
+        </div>
+        <div class="lobby-library-head">
+          <span class="lobby-editor-section-label">物件库</span>
+          <div aria-label="物件来源"><span>目录</span><small>含我的物件</small></div>
+        </div>
         <div id="lobby-catalog" class="lobby-catalog" aria-label="可添加物件"></div>
         <section class="lobby-selection" aria-label="已选物件操作">
           <div>
