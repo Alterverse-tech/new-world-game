@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AccountRecoveryFlow, captureRecoveryHash, type AccountRecoveryPort } from './account-recovery-flow';
+import { AccountRecoveryRequestError } from './account-auth-service';
 
 function makePort(values = { email: ' player@example.com ', password: 'new-password', confirmation: 'new-password' }) {
   const port: AccountRecoveryPort & { values: typeof values; states: unknown[] } = { values, states: [], readEmail: () => values.email, readPassword: () => values.password, readConfirmation: () => values.confirmation, setEmail: vi.fn((email: string) => { values.email = email; }), clearSecrets: vi.fn(() => { values.password = values.confirmation = ''; }), render: vi.fn((state) => port.states.push(state)), focusEmail: vi.fn(), focusPassword: vi.fn(), focusConfirmation: vi.fn() };
@@ -39,5 +40,15 @@ describe('AccountRecoveryFlow', () => {
     expect(service.updateRecoveredPassword).toHaveBeenCalledWith('recovery-secret', 'new-password');
     expect(JSON.stringify([flow.getState(), port.states])).not.toContain('recovery-secret');
     expect(JSON.stringify([flow.getState(), port.states])).not.toContain('new-password');
+  });
+
+  it('preserves a retryable recovery token but clears it for an explicit fatal error', async () => {
+    const port = makePort(); const updateRecoveredPassword = vi.fn().mockRejectedValueOnce(new Error('network-secret')).mockRejectedValueOnce(new AccountRecoveryRequestError('expired', false));
+    const flow = new AccountRecoveryFlow({ port, service: { sendRecoveryEmail: vi.fn(), updateRecoveredPassword } });
+    flow.openRecovery('#access_token=recovery-secret&type=recovery'); port.values.password = port.values.confirmation = 'new-password'; await flow.updatePassword();
+    expect(flow.getState().mode).toBe('password');
+    await flow.updatePassword();
+    expect(flow.getState().mode).toBe('email'); expect(port.values.password).toBe('');
+    expect(JSON.stringify(port.states)).not.toContain('recovery-secret');
   });
 });

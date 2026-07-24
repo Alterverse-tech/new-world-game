@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   AccountAuthService,
+  AccountRecoveryRequestError,
   authRedirectUrl,
   parseAuthConfig,
 } from './account-auth-service';
@@ -204,6 +205,33 @@ describe('AccountAuthService', () => {
     expect(fetchImpl.mock.calls[2]![1]).toMatchObject({ method: 'PUT', credentials: 'omit', cache: 'no-store', body: JSON.stringify({ password: 'new-password' }), headers: expect.objectContaining({ Authorization: 'Bearer recovery-secret' }) });
     const failing = new AccountAuthService({ fetchImpl: vi.fn().mockResolvedValueOnce(configResponse()).mockResolvedValueOnce(new Response(JSON.stringify({ code: 'unknown', token: 'private' }), { status: 400 })) });
     await expect(failing.sendRecoveryEmail('player@example.com', 'https://altverse.fun/')).rejects.toThrow('重置邮件发送失败，请稍后重试。');
+  });
+
+  it.each([
+    ['weak_password', '新密码强度不足，请使用至少 8 位密码。', true],
+    ['same_password', '新密码不能与当前密码相同。', true],
+    ['email_address_invalid', '邮箱地址无效，请检查后重试。', true],
+    ['over_email_send_rate_limit', '重置邮件发送过于频繁，请稍后再试。', true],
+    ['over_request_rate_limit', '请求过于频繁，请稍后再试。', true],
+  ])('maps recovery code %s without body exposure', async (code, message, retryable) => {
+    const service = new AccountAuthService({ fetchImpl: vi.fn().mockResolvedValueOnce(configResponse()).mockResolvedValueOnce(new Response(JSON.stringify({ code, secret: 'server-secret' }), { status: 400 })) });
+    await service.sendRecoveryEmail('player@example.com', 'https://altverse.fun/').catch((error: unknown) => {
+      expect(error).toBeInstanceOf(AccountRecoveryRequestError);
+      expect((error as AccountRecoveryRequestError).message).toBe(message);
+      expect((error as AccountRecoveryRequestError).canRetryPassword).toBe(retryable);
+      expect(String(error)).not.toContain('server-secret');
+    });
+  });
+
+  it('classifies only explicit unauthorized recovery responses as fatal', async () => {
+    for (const [status, retryable] of [[401, false], [429, true], [500, true]] as const) {
+      const service = new AccountAuthService({ fetchImpl: vi.fn().mockResolvedValueOnce(configResponse()).mockResolvedValueOnce(new Response('secret-body', { status })) });
+      await service.updateRecoveredPassword('recovery-token', 'new-password').catch((error: unknown) => {
+        expect(error).toBeInstanceOf(AccountRecoveryRequestError);
+        expect((error as AccountRecoveryRequestError).canRetryPassword).toBe(retryable);
+        expect(String(error)).not.toContain('secret-body');
+      });
+    }
   });
 
   it('rejects null and primitive successful session responses with a fixed error', async () => {

@@ -47,4 +47,12 @@ describe('AccountRegistrationFlow', () => {
     expect(ui.setEmail).toHaveBeenCalledWith('player@example.com');
     expect(ui.focusPassword).toHaveBeenCalled();
   });
+
+  it('keeps verification controls busy until failure state is rendered, then focuses token', async () => {
+    const ui = makePort(); let disabled = true; const focused: boolean[] = [];
+    ui.render = vi.fn((state) => { disabled = state.busy; }); ui.focusToken = vi.fn(() => focused.push(disabled));
+    const flow = new AccountRegistrationFlow({ port: ui, service: { sendOtp: vi.fn(async () => {}), verifyOtp: vi.fn(async () => { throw new Error('secret'); }), setPassword: vi.fn(), exchangeSession: vi.fn() }, storage: { get: vi.fn(), set: vi.fn(), delete: vi.fn() }, now: Date.now, redirectTo: 'https://altverse.fun/', reload: vi.fn() });
+    await flow.submit(); await flow.submit();
+    expect(focused.at(-1)).toBe(false);
+  });
 });

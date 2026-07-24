@@ -204,7 +204,7 @@ async function safeRecoveryError(response: Response, fallback: string): Promise<
     const messages: Record<string, string> = { email_address_invalid: '邮箱地址无效，请检查后重试。', over_email_send_rate_limit: '重置邮件发送过于频繁，请稍后再试。', over_request_rate_limit: '请求过于频繁，请稍后再试。', weak_password: '新密码强度不足，请使用至少 8 位密码。', same_password: '新密码不能与当前密码相同。' };
     const fatal = response.status === 401 || ['invalid_token', 'invalid_grant', 'access_denied'].includes(code);
     return new AccountRecoveryRequestError(messages[code] ?? fallback, !fatal);
-  } catch { return new AccountRecoveryRequestError(fallback, false); }
+  } catch { return new AccountRecoveryRequestError(fallback, response.status !== 401); }
 }
 
 async function safeJson(response: Response, message: string): Promise<unknown> {
