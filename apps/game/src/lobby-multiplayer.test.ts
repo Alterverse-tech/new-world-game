@@ -6,6 +6,7 @@ import {
   buildLobbyWebSocketUrl,
   interpolateYaw,
   LobbyMultiplayer,
+  lobbyNicknameLabelVisible,
   lobbyPlayerEyePosition,
   normalizeAvatarId,
   normalizeThirdPersonCameraDistance,
@@ -32,6 +33,107 @@ import {
 import { PlayerTelemetryController, type PlayerActivity } from './player-telemetry';
 
 const VEHICLE_LEASE_ID = 'lease-12345678-1234-4234-8234-123456789abc';
+
+describe('lobby nickname labels', () => {
+  it('shows both self and remote nicknames', () => {
+    expect(lobbyNicknameLabelVisible(true)).toBe(true);
+    expect(lobbyNicknameLabelVisible(false)).toBe(true);
+  });
+
+  it('keeps self and remote labels visible across actor creation and profile updates', () => {
+    vi.stubGlobal('document', {
+      createElement: () => ({
+        width: 0,
+        height: 0,
+        getContext: () => null,
+      }),
+    });
+    type TestActor = {
+      group: THREE.Group;
+      label: THREE.Sprite;
+      profile: { name: string; avatarId: string };
+      self: boolean;
+    };
+    const multiplayer = Object.create(LobbyMultiplayer.prototype) as Record<string, unknown>;
+    Object.assign(multiplayer, { loadActorAvatar: vi.fn() });
+    const methods = LobbyMultiplayer.prototype as unknown as {
+      createActor(
+        this: Record<string, unknown>,
+        id: string,
+        profile: { name: string; avatarId: string },
+        pose: { x: number; y: number; z: number; yaw: number; moving: boolean },
+        self: boolean,
+      ): TestActor;
+      updateActorProfile(
+        this: Record<string, unknown>,
+        actor: TestActor,
+        profile: { name: string; avatarId: string },
+      ): void;
+    };
+
+    for (const self of [true, false]) {
+      const actor = methods.createActor.call(
+        multiplayer,
+        self ? 'self-0001' : 'remote-0001',
+        { name: self ? 'Self' : 'Remote', avatarId: '' },
+        { x: 0, y: 0, z: 0, yaw: 0, moving: false },
+        self,
+      );
+      expect(actor.label.visible).toBe(true);
+
+      actor.group.visible = false;
+      methods.updateActorProfile.call(multiplayer, actor, { name: 'Renamed', avatarId: '' });
+
+      expect(actor.label.visible).toBe(true);
+      expect(actor.group.visible).toBe(false);
+    }
+  });
+
+  it('keeps self label visibility independent from first-person and camera obstruction group state', () => {
+    const multiplayer = multiplayerHarness();
+    multiplayer.selfActor.label.visible = lobbyNicknameLabelVisible(true);
+    multiplayer.view = 'third';
+
+    LobbyMultiplayer.prototype.setView.call(multiplayer, 'first');
+    expect(multiplayer.selfActor.group.visible).toBe(false);
+    expect(multiplayer.selfActor.label.visible).toBe(true);
+
+    multiplayer.cameraObstructed = false;
+    LobbyMultiplayer.prototype.setView.call(multiplayer, 'third');
+    expect(multiplayer.selfActor.group.visible).toBe(true);
+    expect(multiplayer.selfActor.label.visible).toBe(true);
+
+    multiplayer.cameraObstructed = true;
+    LobbyMultiplayer.prototype.setView.call(multiplayer, 'first');
+    LobbyMultiplayer.prototype.setView.call(multiplayer, 'third');
+    expect(multiplayer.selfActor.group.visible).toBe(false);
+    expect(multiplayer.selfActor.label.visible).toBe(true);
+  });
+
+  it('keeps self and remote labels visible while driving hides their actor groups', () => {
+    const multiplayer = multiplayerHarness();
+    const remote = actorStub('remote-0001');
+    multiplayer.peers.set(remote.id, remote);
+    multiplayer.vehicles.set('self-vehicle', vehicleSnapshot({
+      objectId: 'self-vehicle',
+      driverId: 'self-0001',
+    }));
+    multiplayer.vehicles.set('remote-vehicle', vehicleSnapshot({
+      objectId: 'remote-vehicle',
+      driverId: remote.id,
+    }));
+    const syncVehicleOccupants = (LobbyMultiplayer.prototype as unknown as {
+      syncVehicleOccupants(this: MultiplayerHarness): void;
+    }).syncVehicleOccupants;
+
+    syncVehicleOccupants.call(multiplayer);
+
+    expect(multiplayer.selfActor.group.visible).toBe(false);
+    expect(remote.group.visible).toBe(false);
+    expect(multiplayer.selfActor.label.visible).toBe(true);
+    expect(remote.label.visible).toBe(true);
+  });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -62,10 +164,13 @@ function vehicleSnapshot(overrides: Partial<LobbyVehicleSnapshot> = {}): LobbyVe
 function actorStub(id: string, moving = false) {
   const group = new THREE.Group();
   group.visible = true;
+  const label = new THREE.Sprite();
+  label.visible = true;
   return {
     id,
     profile: { name: id, avatarId: '' },
     group,
+    label,
     visual: new THREE.Group(),
     current: new THREE.Vector3(),
     target: new THREE.Vector3(),
@@ -75,6 +180,7 @@ function actorStub(id: string, moving = false) {
     idleAction: null,
     walkAction: null,
     animationTime: 0,
+    self: id === 'self-0001',
   };
 }
 
@@ -92,6 +198,9 @@ interface MultiplayerHarness {
   vehicleAutolandSupported: boolean;
   vehicles: Map<string, LobbyVehicleSnapshot>;
   peers: Map<string, ReturnType<typeof actorStub>>;
+  selfActor: ReturnType<typeof actorStub>;
+  view: 'first' | 'third';
+  cameraObstructed: boolean;
   localVehicleLease: { objectId: string; leaseId: string } | null;
   connected: boolean;
   connectionEpoch: number;
@@ -104,6 +213,7 @@ interface MultiplayerHarness {
   connect: () => void;
   visibilityListening: boolean;
   visibilityListener: EventListener;
+  refreshHud: ReturnType<typeof vi.fn>;
 }
 
 interface TelemetrySpy {
@@ -160,6 +270,7 @@ function multiplayerHarness(onVehicleEvent = vi.fn()): MultiplayerHarness {
     connected: true,
     serverOnline: 1,
     view: 'third',
+    cameraObstructed: false,
     profile: { name: 'Self', avatarId: '' },
     lastSelfPose: { x: 0, y: 0.02, z: 4.2, yaw: 0, moving: false },
     lastPoseSentAt: Number.NEGATIVE_INFINITY,
@@ -179,6 +290,7 @@ function multiplayerHarness(onVehicleEvent = vi.fn()): MultiplayerHarness {
     telemetry: telemetrySpy(),
     visibilityListening: false,
     visibilityListener: vi.fn(),
+    refreshHud: vi.fn(),
   });
   return instance;
 }

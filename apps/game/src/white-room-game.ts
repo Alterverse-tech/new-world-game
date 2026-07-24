@@ -249,6 +249,14 @@ function byId<T extends HTMLElement>(id: string): T {
   return element as T;
 }
 
+export function quitWhiteRoomGame(actions: {
+  exitPointerLock(): void;
+  reload(): void;
+}): void {
+  actions.exitPointerLock();
+  actions.reload();
+}
+
 interface AccountProfileStore {
   getPlayerProfile(): AccountPlayerProfile | null;
   savePlayerProfile(nickname: string, avatarId: string): Promise<void>;
@@ -601,6 +609,12 @@ export class WhiteRoomGame {
     byId<HTMLButtonElement>('resume-btn').addEventListener('click', () => this.resumeGame());
     byId<HTMLButtonElement>('reset-btn').addEventListener('click', () => this.softResetLevel());
     byId<HTMLButtonElement>('settings-btn').addEventListener('click', () => this.openSettings());
+    byId<HTMLButtonElement>('quit-game-btn').addEventListener('click', () => {
+      quitWhiteRoomGame({
+        exitPointerLock: () => document.exitPointerLock?.(),
+        reload: () => window.location.reload(),
+      });
+    });
     byId<HTMLButtonElement>('settings-back-btn').addEventListener('click', () => this.closeSettings());
     byId<HTMLButtonElement>('unplug-btn').addEventListener('click', () => this.transitionToHub());
     byId<HTMLButtonElement>('lobby-editor-entry').addEventListener('click', () => this.enterLobbyEditor());

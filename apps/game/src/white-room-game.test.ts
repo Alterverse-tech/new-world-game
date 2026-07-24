@@ -1,7 +1,56 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import type { LobbyLocalPropInteractionUse } from './lobby-editor';
-import { trumpTowerResidenceForSequence, WhiteRoomGame } from './white-room-game';
+import { quitWhiteRoomGame, trumpTowerResidenceForSequence, WhiteRoomGame } from './white-room-game';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('quit game', () => {
+  it('releases pointer lock before reloading the current URL', () => {
+    const calls: string[] = [];
+
+    quitWhiteRoomGame({
+      exitPointerLock: () => calls.push('exit-pointer-lock'),
+      reload: () => calls.push('reload'),
+    });
+
+    expect(calls).toEqual(['exit-pointer-lock', 'reload']);
+  });
+
+  it('does not reload if releasing pointer lock throws', () => {
+    const failure = new Error('pointer lock failed');
+    const reload = vi.fn();
+
+    expect(() => quitWhiteRoomGame({
+      exitPointerLock: () => { throw failure; },
+      reload,
+    })).toThrow(failure);
+
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('binds the quit button exactly once with the existing pause-menu controls', () => {
+    const commonControl = { addEventListener: vi.fn() };
+    const quitButton = { addEventListener: vi.fn() };
+    vi.stubGlobal('document', {
+      getElementById: (id: string) => id === 'quit-game-btn' ? quitButton : commonControl,
+    });
+    const game = Object.create(WhiteRoomGame.prototype) as Record<string, unknown>;
+    Object.assign(game, {
+      ui: new Proxy({}, { get: () => commonControl }),
+    });
+    const bindUi = (WhiteRoomGame.prototype as unknown as {
+      bindUi(this: Record<string, unknown>): void;
+    }).bindUi;
+
+    bindUi.call(game);
+
+    expect(quitButton.addEventListener).toHaveBeenCalledOnce();
+    expect(quitButton.addEventListener).toHaveBeenCalledWith('click', expect.any(Function));
+  });
+});
 
 describe('vehicle release acknowledgement recovery', () => {
   const stopAfterTimeoutCheck = new Error('stop-after-timeout-check');

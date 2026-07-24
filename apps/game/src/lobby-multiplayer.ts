@@ -1016,6 +1016,11 @@ export function lobbyPlayerEyePosition(playerPosition: THREE.Vector3): THREE.Vec
   return playerPosition.clone().add(new THREE.Vector3(0, 1.62, 0));
 }
 
+export function lobbyNicknameLabelVisible(isSelf: boolean): boolean {
+  void isSelf;
+  return true;
+}
+
 function createNicknameSprite(name: string): THREE.Sprite {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
@@ -1987,7 +1992,7 @@ export class LobbyMultiplayer {
     const group = new THREE.Group();
     group.name = `LobbyPlayer:${id}`;
     const label = createNicknameSprite(profile.name);
-    label.visible = !isSelf;
+    label.visible = lobbyNicknameLabelVisible(isSelf);
     group.add(fallback.root, label);
     group.position.set(pose.x, pose.y, pose.z);
     group.rotation.y = pose.yaw;
@@ -2244,7 +2249,7 @@ export class LobbyMultiplayer {
     disposeSprite(actor.label);
     actor.label.removeFromParent();
     actor.label = createNicknameSprite(name);
-    actor.label.visible = !actor.self;
+    actor.label.visible = lobbyNicknameLabelVisible(actor.self);
     actor.group.add(actor.label);
   }
 
