@@ -79,6 +79,8 @@
 
 将生产 HTML 中新增的 OTP、注册、密码恢复、玩家状态和退出按钮节点合并到 `apps/game/index.html`。将对应 overlay CSS 合并到 `apps/game/src/openai-theme.css`，沿用已有 WhiteRoom 变量、响应式断点和 reduced-motion 规则。
 
+恢复源码仍允许旧 Supabase 项目 `https://hwbjybuwgarkitejqism.supabase.co`，当前生产成品已经切换到 `https://uzshphuobuaeyadxgriv.supabase.co`。源码 CSP 必须同步为当前生产的单一 Supabase origin，并删除旧 origin；不增加通配符或第二个 Supabase origin。
+
 `main.ts` 只导入源码 CSS 和 TypeScript 入口。Vite 构建生成带内容哈希的标准资源，不额外复制生产 overlay 文件。
 
 ## 数据流
@@ -107,7 +109,7 @@
 - recovery token 只在内存中短暂存在；读取后立即清理 URL hash，成功、取消或错误结束时清除。
 - telemetry 继续使用服务端已经约束的 FPS、RTT、状态和地区范围；客户端对收到的数据再次限幅和净化。
 - 玩家状态面板只使用 `textContent` 创建内容，不拼接用户提供的 HTML。
-- 本阶段不改变 CSP、服务端认证协议、多人协议上限或生产静态目录。
+- 本阶段只把源码 CSP 的 Supabase origin 对齐到当前生产值，不放宽其他 CSP 指令；服务端认证协议、多人协议上限和生产静态目录保持不变。
 
 ## 测试设计
 
