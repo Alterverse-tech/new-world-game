@@ -75,4 +75,19 @@ describe('AccountRegistrationFlow', () => {
     const sending = flow.submit(); await flow.resend(); expect(sendOtp).toHaveBeenCalledOnce(); resolveSend(); await sending;
     storage.get.mockReturnValue(JSON.stringify({ email: 'player@example.com', until: 61_000 })); flow.open('player@example.com'); values.password = values.confirmation = 'register-password'; await flow.submit(); expect(flow.getState()).toMatchObject({ stage: 'verify', cooldownSeconds: 60 });
   });
+
+  it('sends exactly one additional resend while a verify-stage resend is pending', async () => {
+    const values = { email: 'player@example.com', password: 'register-password', confirmation: 'register-password', token: '' };
+    const ui = makePort(values); let resolveFirst!: () => void; let resolveResend!: () => void;
+    const sendOtp = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { resolveResend = resolve; }));
+    let now = 0; const stored = new Map<string, string>();
+    const flow = new AccountRegistrationFlow({ port: ui, service: { sendOtp, verifyOtp: vi.fn(), setPassword: vi.fn(), exchangeSession: vi.fn() }, storage: { get: (key) => stored.get(key), set: (key, value) => stored.set(key, value), delete: (key) => stored.delete(key) }, now: () => now, redirectTo: 'https://altverse.fun/', reload: vi.fn() });
+    const initial = flow.submit(); resolveFirst(); await initial;
+    expect(flow.getState()).toMatchObject({ stage: 'verify', cooldownSeconds: 60 });
+    now = 60_000; flow.updateCooldown(); expect(flow.getState().cooldownSeconds).toBe(0);
+    const resend = flow.resend(); await flow.resend(); expect(sendOtp).toHaveBeenCalledTimes(2);
+    resolveResend(); await resend;
+  });
 });

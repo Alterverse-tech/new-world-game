@@ -69,6 +69,8 @@ describe('AccountRecoveryFlow', () => {
   it.each(['#error=access_denied', '#type=recovery', '#not-a-query'])('invalid callback %s clears prior recovery secrets', async (hash) => {
     const port = makePort(); const updateRecoveredPassword = vi.fn(); const flow = new AccountRecoveryFlow({ port, service: { sendRecoveryEmail: vi.fn(), updateRecoveredPassword } });
     flow.openRecovery('#access_token=old-token&type=recovery'); port.values.password = port.values.confirmation = 'new-password'; flow.openRecovery(hash);
-    expect(flow.getState()).toMatchObject({ mode: 'email', messageState: 'error' }); expect(port.values.password).toBe(''); await flow.updatePassword(); expect(updateRecoveredPassword).not.toHaveBeenCalled();
+    expect(flow.getState()).toMatchObject({ mode: 'email', messageState: 'error' }); expect(port.values.password).toBe('');
+    port.values.password = port.values.confirmation = 'new-password'; await flow.updatePassword();
+    expect(updateRecoveredPassword).not.toHaveBeenCalled(); expect(flow.getState()).toMatchObject({ mode: 'email', messageState: 'error' });
   });
 });
