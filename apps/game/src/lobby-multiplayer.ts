@@ -1398,7 +1398,7 @@ export class LobbyMultiplayer {
       }
     }
     if (!this.active) return;
-    this.telemetry.recordFrame(performance.now());
+    if (this.connected) this.telemetry.recordFrame(performance.now());
 
     const selfPosition = new THREE.Vector3(pose.x, pose.y, pose.z);
     const selfDriving = this.selfOccupiesVehicle();

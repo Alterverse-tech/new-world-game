@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   avatarModelUrl,
   buildLobbyWebSocketUrl,
@@ -32,6 +32,11 @@ import {
 import type { PlayerActivity, PlayerTelemetryController } from './player-telemetry';
 
 const VEHICLE_LEASE_ID = 'lease-12345678-1234-4234-8234-123456789abc';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 function vehicleSnapshot(overrides: Partial<LobbyVehicleSnapshot> = {}): LobbyVehicleSnapshot {
   return {
@@ -573,6 +578,11 @@ describe('vehicle lease multiplayer protocol', () => {
     multiplayer.update(0.1, 10, { x: 0, y: 0, z: 0, yaw: 0, moving: true });
     expect(multiplayer.telemetry.recordFrame).toHaveBeenCalledWith(1_234);
     expect(multiplayer.telemetry.setLocalActivity).toHaveBeenCalledWith('moving');
+    multiplayer.telemetry.recordFrame.mockClear();
+    multiplayer.connected = false;
+    multiplayer.update(0.1, 10.1, { x: 0, y: 0, z: 0, yaw: 0, moving: true });
+    expect(multiplayer.telemetry.recordFrame).not.toHaveBeenCalled();
+    multiplayer.connected = true;
 
     multiplayer.handleVisibilityChange();
     expect(multiplayer.telemetry.setLocalActivity).toHaveBeenLastCalledWith('away');
