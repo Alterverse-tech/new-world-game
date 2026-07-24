@@ -1583,7 +1583,7 @@ export class LobbyMultiplayer {
   }
 
   private handleVisibilityChange(): void {
-    this.telemetry.setLocalActivity(document.hidden ? 'away' : this.currentTelemetryActivity());
+    this.telemetry.setLocalVisibility(document.hidden);
   }
 
   private addVisibilityListener(): void {

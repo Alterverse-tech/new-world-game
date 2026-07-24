@@ -214,11 +214,7 @@ export function renderPlayerStats(state: Readonly<PlayerTelemetryState>): void {
   if (!panel || !list || !summary) return;
 
   panel.classList.toggle('is-offline', state.connection === 'offline');
-  const players = [...state.players].sort((left, right) => {
-    if (left.id === state.selfId) return -1;
-    if (right.id === state.selfId) return 1;
-    return left.name.localeCompare(right.name, 'zh-CN') || left.id.localeCompare(right.id);
-  });
+  const players = state.players;
   summary.textContent = state.connection === 'offline'
     ? '连接中断'
     : `${players.filter((player) => player.connected).length} 人在线`;
@@ -328,13 +324,15 @@ export class PlayerTelemetryController {
   private channel = 'lobby';
   private localFps = 0;
   private localRttMs = 0;
-  private localActivity: PlayerActivity = 'online';
+  private baseLocalActivity: PlayerActivity = 'online';
+  private localHidden = false;
   private localRegion = 'Unknown';
   private nextNonce = 1;
   private lastTelemetrySentAt = Number.NEGATIVE_INFINITY;
   private frameStartedAt: number | null = null;
   private frameCount = 0;
   private pingInterval: ReturnType<typeof globalThis.setInterval> | null = null;
+  private telemetryTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
   private lastState: Readonly<PlayerTelemetryState>;
 
   public constructor(dependencies: PlayerTelemetryDependencies) {
@@ -348,7 +346,7 @@ export class PlayerTelemetryController {
     this.connection = 'online';
     this.selfId = isClientId(selfId) ? selfId : null;
     this.channel = sanitizeText(channel, 'lobby', 96);
-    this.localActivity = this.channel.startsWith('level:') ? 'playing' : 'online';
+    this.baseLocalActivity = this.channel.startsWith('level:') ? 'playing' : 'online';
     this.localRegion = this.readRegion();
     this.localRttMs = 0;
     this.lastTelemetrySentAt = Number.NEGATIVE_INFINITY;
@@ -398,6 +396,7 @@ export class PlayerTelemetryController {
     }
     const current = this.players.get(id);
     if (!current) return;
+    if (current.state === activity) return;
     this.players.set(id, { ...current, state: activity });
     this.publish();
   }
@@ -461,7 +460,20 @@ export class PlayerTelemetryController {
 
   public setLocalActivity(activity: PlayerActivity): void {
     if (!isPlayerActivity(activity)) return;
-    this.localActivity = activity;
+    if (activity === this.baseLocalActivity) return;
+    const previousActivity = this.effectiveLocalActivity();
+    this.baseLocalActivity = activity;
+    if (this.effectiveLocalActivity() === previousActivity) return;
+    this.syncSelf();
+    this.publish();
+    this.sendTelemetry();
+  }
+
+  public setLocalVisibility(hidden: boolean): void {
+    if (hidden === this.localHidden) return;
+    const previousActivity = this.effectiveLocalActivity();
+    this.localHidden = hidden;
+    if (this.effectiveLocalActivity() === previousActivity) return;
     this.syncSelf();
     this.publish();
     this.sendTelemetry();
@@ -475,7 +487,7 @@ export class PlayerTelemetryController {
     this.channel = 'lobby';
     this.localFps = 0;
     this.localRttMs = 0;
-    this.localActivity = 'online';
+    this.baseLocalActivity = 'online';
     this.localRegion = 'Unknown';
     this.lastTelemetrySentAt = Number.NEGATIVE_INFINITY;
     this.frameStartedAt = null;
@@ -518,7 +530,7 @@ export class PlayerTelemetryController {
       connected: this.connection !== 'offline',
       fps: this.localFps,
       rttMs: this.localRttMs,
-      state: this.localActivity,
+      state: this.effectiveLocalActivity(),
       region: this.localRegion,
       updatedAt: this.readNow(),
     });
@@ -527,12 +539,22 @@ export class PlayerTelemetryController {
   private sendTelemetry(): void {
     if (this.connection !== 'online' || !this.selfId) return;
     const now = this.readNow();
-    if (now - this.lastTelemetrySentAt < TELEMETRY_MIN_INTERVAL_MS) return;
+    const dueAt = this.lastTelemetrySentAt + TELEMETRY_MIN_INTERVAL_MS;
+    if (now < dueAt) {
+      if (this.telemetryTimeout === null) {
+        this.telemetryTimeout = globalThis.setTimeout(() => {
+          this.telemetryTimeout = null;
+          this.sendTelemetry();
+        }, dueAt - now);
+      }
+      return;
+    }
+    this.clearTelemetryTimeout();
     const payload = {
       type: 'telemetry',
       fps: boundedInteger(this.localFps, 240),
       rttMs: boundedInteger(this.localRttMs, 60_000),
-      state: this.localActivity,
+      state: this.effectiveLocalActivity(),
       region: sanitizeRegion(this.localRegion),
     };
     if (this.safeSend(payload)) this.lastTelemetrySentAt = now;
@@ -564,7 +586,18 @@ export class PlayerTelemetryController {
     }
   }
 
+  private effectiveLocalActivity(): PlayerActivity {
+    return this.localHidden ? 'away' : this.baseLocalActivity;
+  }
+
+  private clearTelemetryTimeout(): void {
+    if (this.telemetryTimeout === null) return;
+    globalThis.clearTimeout(this.telemetryTimeout);
+    this.telemetryTimeout = null;
+  }
+
   private clearTimers(): void {
+    this.clearTelemetryTimeout();
     if (this.pingInterval !== null) {
       globalThis.clearInterval(this.pingInterval);
       this.pingInterval = null;

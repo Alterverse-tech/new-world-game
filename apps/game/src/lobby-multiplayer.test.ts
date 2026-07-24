@@ -29,7 +29,7 @@ import {
   VEHICLE_LEASE_FEATURE,
   type LobbyVehicleSnapshot,
 } from './lobby-multiplayer';
-import type { PlayerActivity, PlayerTelemetryController } from './player-telemetry';
+import { PlayerTelemetryController, type PlayerActivity } from './player-telemetry';
 
 const VEHICLE_LEASE_ID = 'lease-12345678-1234-4234-8234-123456789abc';
 
@@ -116,6 +116,7 @@ interface TelemetrySpy {
   handlePong: ReturnType<typeof vi.fn>;
   recordFrame: ReturnType<typeof vi.fn>;
   setLocalActivity: ReturnType<typeof vi.fn<(activity: PlayerActivity) => void>>;
+  setLocalVisibility: ReturnType<typeof vi.fn<(hidden: boolean) => void>>;
   stop: ReturnType<typeof vi.fn>;
 }
 
@@ -130,6 +131,7 @@ function telemetrySpy(): TelemetrySpy {
     handlePong: vi.fn(),
     recordFrame: vi.fn(),
     setLocalActivity: vi.fn(),
+    setLocalVisibility: vi.fn(),
     stop: vi.fn(),
   };
 }
@@ -604,6 +606,107 @@ describe('vehicle lease multiplayer protocol', () => {
     }
   });
 
+  it('avoids telemetry renders for repeated equivalent pose and vehicle state events', () => {
+    const multiplayer = multiplayerHarness();
+    const render = vi.fn();
+    const telemetry = new PlayerTelemetryController({
+      send: vi.fn(),
+      render,
+      now: () => 1_000,
+      region: () => 'China',
+    });
+    Object.assign(multiplayer, { telemetry });
+    const snapshot = (id: string, name: string) => ({
+      id, name, avatarId: null, x: 0, y: 0, z: 0, yaw: 0, moving: false,
+      telemetry: { fps: 60, rttMs: 40, state: 'online', region: 'China', updatedAt: 1 },
+    });
+    const remote = actorStub('alice-0001');
+    remote.profile.name = 'Alice';
+    multiplayer.peers.set(remote.id, remote);
+
+    try {
+      telemetry.connect('self-0001', 'lobby:0000', [
+        snapshot('self-0001', 'Self'),
+        snapshot('alice-0001', 'Alice'),
+      ]);
+      render.mockClear();
+
+      multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+        type: 'pose', id: 'alice-0001', x: 1, y: 0, z: 0, yaw: 0, moving: false,
+      }));
+      multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+        type: 'pose', id: 'alice-0001', x: 2, y: 0, z: 0, yaw: 0, moving: false,
+      }));
+      expect(render).not.toHaveBeenCalled();
+
+      multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+        type: 'pose', id: 'alice-0001', x: 3, y: 0, z: 0, yaw: 0, moving: true,
+      }));
+      expect(render).toHaveBeenCalledOnce();
+      multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+        type: 'pose', id: 'alice-0001', x: 4, y: 0, z: 0, yaw: 0, moving: true,
+      }));
+      expect(render).toHaveBeenCalledOnce();
+
+      multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+        type: 'vehicle_state', vehicle: vehicleSnapshot({ driverId: 'alice-0001', seq: 7 }),
+      }));
+      expect(render).toHaveBeenCalledTimes(2);
+      multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+        type: 'vehicle_state', vehicle: vehicleSnapshot({ driverId: 'alice-0001', seq: 8 }),
+      }));
+      expect(render).toHaveBeenCalledTimes(2);
+    } finally {
+      telemetry.stop();
+    }
+  });
+
+  it('keeps local vehicle and party activity hidden until visibility restores the latest base state', () => {
+    const multiplayer = multiplayerHarness();
+    let now = 1_000;
+    const telemetry = new PlayerTelemetryController({
+      send: (payload) => multiplayer.socket.send(payload),
+      render: vi.fn(),
+      now: () => now,
+      region: () => 'China',
+    });
+    Object.assign(multiplayer, { telemetry });
+    const fakeDocument = { hidden: true };
+    vi.stubGlobal('document', fakeDocument);
+
+    try {
+      telemetry.connect('self-0001', 'lobby:0000', [{
+        id: 'self-0001', name: 'Self', avatarId: null,
+        x: 0, y: 0, z: 0, yaw: 0, moving: false,
+      }]);
+      multiplayer.handleVisibilityChange();
+      expect(telemetry.getState().players[0]).toMatchObject({ state: 'away' });
+
+      multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+        type: 'vehicle_claimed', vehicle: vehicleSnapshot({ driverId: 'self-0001' }),
+      }));
+      expect(telemetry.getState().players[0]).toMatchObject({ state: 'away' });
+      multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+        type: 'party_launch',
+        partyId: 'party-12345678-1234-4234-8234-123456789abc',
+        levelId: 'skyline-relay-official',
+        levelVersion: 'builtin:1:skyline-relay-official',
+      }));
+      expect(telemetry.getState().players[0]).toMatchObject({ state: 'away' });
+
+      now = 1_750;
+      fakeDocument.hidden = false;
+      multiplayer.handleVisibilityChange();
+      expect(telemetry.getState().players[0]).toMatchObject({ state: 'playing' });
+      expect(multiplayer.socket.send.mock.calls.map(([payload]) => JSON.parse(String(payload)))).toEqual([
+        expect.objectContaining({ type: 'telemetry', state: 'away' }),
+        expect.objectContaining({ type: 'telemetry', state: 'playing' }),
+      ]);
+    } finally {
+      telemetry.stop();
+    }
+  });
+
   it('maps an idle remote pose to playing in a level and online in a lobby', () => {
     const multiplayer = multiplayerHarness();
     const remote = actorStub('alice-0001');
@@ -678,10 +781,10 @@ describe('vehicle lease multiplayer protocol', () => {
     multiplayer.connected = true;
 
     multiplayer.handleVisibilityChange();
-    expect(multiplayer.telemetry.setLocalActivity).toHaveBeenLastCalledWith('away');
+    expect(multiplayer.telemetry.setLocalVisibility).toHaveBeenLastCalledWith(true);
     fakeDocument.hidden = false;
     multiplayer.handleVisibilityChange();
-    expect(multiplayer.telemetry.setLocalActivity).toHaveBeenLastCalledWith('moving');
+    expect(multiplayer.telemetry.setLocalVisibility).toHaveBeenLastCalledWith(false);
 
     multiplayer.visibilityListening = true;
     multiplayer.socket.readyState = 2;

@@ -212,6 +212,33 @@ describe('player telemetry', () => {
     });
   });
 
+  it('renders the controller-owned player order without sorting a second time', () => {
+    const document = new FakeDocument();
+    document.add('player-stats-panel');
+    document.add('player-stats-summary');
+    const list = document.add('player-stats-list');
+    vi.stubGlobal('document', document);
+
+    renderPlayerStats({
+      connection: 'online',
+      selfId: 'self-0001',
+      channel: 'lobby:0000',
+      players: [
+        {
+          id: 'alice-001', name: 'Alice', connected: true,
+          fps: 60, rttMs: 40, state: 'online', region: 'China', updatedAt: 12,
+        },
+        {
+          id: 'self-0001', name: 'Self', connected: true,
+          fps: 60, rttMs: 40, state: 'online', region: 'China', updatedAt: 12,
+        },
+      ],
+    });
+
+    expect(list.children[0]!.children[0]!.children[1]!.children[0]!.textContent).toBe('Alice');
+    expect(list.children[1]!.children[0]!.children[1]!.children[0]!.textContent).toBe('Self');
+  });
+
   it('clamps untrusted metrics, accepts only known activities, and sanitizes regions', () => {
     expect(normalizePlayerTelemetry({
       fps: 999.4,
@@ -400,6 +427,48 @@ describe('player telemetry', () => {
     harness.controller.stop();
   });
 
+  it('does not render or send when local or remote activity is unchanged', () => {
+    const harness = createHarness();
+    harness.controller.connect('self-0001', 'lobby:0000', [
+      player('self-0001', 'Self'),
+      player('alice-001', 'Alice'),
+    ]);
+    const renderCount = harness.renders.length;
+
+    harness.controller.updateActivity('alice-001', 'online');
+    harness.controller.updateActivity('self-0001', 'online');
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(harness.payloads).toHaveLength(0);
+
+    harness.controller.updateActivity('alice-001', 'moving');
+    expect(harness.renders).toHaveLength(renderCount + 1);
+    harness.controller.updateActivity('alice-001', 'moving');
+    expect(harness.renders).toHaveLength(renderCount + 1);
+    harness.controller.stop();
+  });
+
+  it('keeps away effective while hidden and restores the latest base activity when visible', () => {
+    const harness = createHarness('China', 1_000);
+    harness.controller.connect('self-0001', 'lobby:0000', [player('self-0001', 'Self')]);
+    harness.controller.setLocalVisibility(true);
+    expect(harness.controller.getState().players[0]).toMatchObject({ state: 'away' });
+    expect(harness.payloads.at(-1)).toMatchObject({ type: 'telemetry', state: 'away' });
+    const hiddenRenderCount = harness.renders.length;
+    const hiddenPayloadCount = harness.payloads.length;
+
+    harness.controller.setLocalActivity('driving');
+    harness.controller.setLocalActivity('playing');
+    expect(harness.controller.getState().players[0]).toMatchObject({ state: 'away' });
+    expect(harness.renders).toHaveLength(hiddenRenderCount);
+    expect(harness.payloads).toHaveLength(hiddenPayloadCount);
+
+    harness.setNow(1_750);
+    harness.controller.setLocalVisibility(false);
+    expect(harness.controller.getState().players[0]).toMatchObject({ state: 'playing' });
+    expect(harness.payloads.at(-1)).toMatchObject({ type: 'telemetry', state: 'playing' });
+    harness.controller.stop();
+  });
+
   it('measures exact frame intervals without endpoint overcount or consecutive-window drift', () => {
     const harness = createHarness();
     harness.controller.connect('self-0001', 'lobby:0000', [player('self-0001', 'Self')]);
@@ -509,16 +578,25 @@ describe('player telemetry', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('never sends telemetry more frequently than the server 750ms limit', () => {
+  it('coalesces throttled transitions into one trailing send with the latest effective state', () => {
     const harness = createHarness('\u0000  China and a region name that is too long  ', 1_000);
     harness.controller.connect('self-0001', 'lobby:0000', [player('self-0001', 'Self')]);
     harness.controller.setLocalActivity('moving');
-    harness.setNow(1_749);
-    harness.controller.setLocalActivity('away');
-    harness.setNow(1_750);
+    expect(vi.getTimerCount()).toBe(1);
+
+    harness.setNow(1_100);
+    harness.controller.setLocalActivity('online');
+    harness.setNow(1_200);
+    harness.controller.setLocalVisibility(true);
     harness.controller.setLocalActivity('driving');
-    harness.setNow(2_000);
-    harness.controller.setLocalActivity('hacked' as never);
+    expect(vi.getTimerCount()).toBe(2);
+    expect(harness.payloads).toHaveLength(1);
+
+    harness.setNow(1_749);
+    vi.advanceTimersByTime(649);
+    expect(harness.payloads).toHaveLength(1);
+    harness.setNow(1_750);
+    vi.advanceTimersByTime(1);
 
     expect(harness.payloads).toEqual([
       {
@@ -532,11 +610,39 @@ describe('player telemetry', () => {
         type: 'telemetry',
         fps: 0,
         rttMs: 0,
-        state: 'driving',
+        state: 'away',
         region: 'China and a region name',
       },
     ]);
+    expect(vi.getTimerCount()).toBe(1);
     harness.controller.stop();
+  });
+
+  it('cancels coalesced telemetry on reconnect and stop without stale sends', () => {
+    const harness = createHarness('China', 1_000);
+    harness.controller.connect('self-0001', 'lobby:0000', [player('self-0001', 'Self')]);
+    harness.controller.setLocalActivity('moving');
+    harness.setNow(1_100);
+    harness.controller.setLocalActivity('online');
+    expect(vi.getTimerCount()).toBe(2);
+
+    harness.controller.connect('self-0001', 'level:party-1', [player('self-0001', 'Self')]);
+    expect(vi.getTimerCount()).toBe(1);
+    const beforeReconnectAdvance = harness.payloads.length;
+    harness.setNow(2_000);
+    vi.advanceTimersByTime(750);
+    expect(harness.payloads).toHaveLength(beforeReconnectAdvance);
+
+    harness.controller.setLocalActivity('moving');
+    harness.setNow(2_100);
+    harness.controller.setLocalActivity('playing');
+    expect(vi.getTimerCount()).toBe(2);
+    harness.controller.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    const beforeStopAdvance = harness.payloads.length;
+    harness.setNow(3_000);
+    vi.advanceTimersByTime(2_000);
+    expect(harness.payloads).toHaveLength(beforeStopAdvance);
   });
 
   it('stop releases every timer and pending ping and clears all connection state', () => {
