@@ -55,4 +55,14 @@ describe('AccountRegistrationFlow', () => {
     await flow.submit(); await flow.submit();
     expect(focused.at(-1)).toBe(false);
   });
+
+  it('orders successful verification and reloads only after 700ms', async () => {
+    vi.useFakeTimers();
+    try {
+      const ui = makePort(); const trace: string[] = []; const reload = vi.fn(() => trace.push('reload'));
+      const flow = new AccountRegistrationFlow({ port: ui, service: { sendOtp: vi.fn(async () => { trace.push('send'); }), verifyOtp: vi.fn(async () => { trace.push('verify'); return { access_token: 'token' } as Session; }), setPassword: vi.fn(async (password) => { expect(password).toBe('register-password'); trace.push('password'); }), exchangeSession: vi.fn(async () => trace.push('exchange')) }, storage: { get: vi.fn(), set: vi.fn(), delete: vi.fn(() => trace.push('delete')) }, now: Date.now, redirectTo: 'https://altverse.fun/', reload });
+      await flow.submit(); const verify = flow.submit(); await vi.advanceTimersByTimeAsync(699); expect(reload).not.toHaveBeenCalled(); await vi.advanceTimersByTimeAsync(1); await verify;
+      expect(trace).toEqual(['send', 'verify', 'password', 'exchange', 'delete', 'reload']);
+    } finally { vi.useRealTimers(); }
+  });
 });

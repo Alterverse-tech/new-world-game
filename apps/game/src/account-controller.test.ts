@@ -505,6 +505,15 @@ describe('email auth operations', () => {
     await vi.waitFor(() => expect(elements.get('account-reset-back')!.disabled).toBe(false));
   });
 
+  it('sanitizes a bubbling registration OTP input and auto-submits six digits', async () => {
+    const verifyOtp = vi.fn(async () => ({ access_token: 'token' } as Session));
+    const { elements } = initializedController({ sendOtp: vi.fn(async () => {}), verifyOtp, setPassword: vi.fn(async () => {}), exchangeSession: vi.fn(async () => {}) });
+    elements.get('account-register-btn')!.dispatchEvent(new Event('click')); elements.get('account-register-email')!.value = 'player@example.com'; elements.get('account-register-password')!.value = 'register-password'; elements.get('account-register-password-confirm')!.value = 'register-password'; elements.get('account-register-form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(elements.get('account-register-code-email')!.textContent).toBe('player@example.com'));
+    const code = elements.get('account-register-code')!; code.value = '12a34 5678'; code.dispatchEvent(new Event('input'));
+    await vi.waitFor(() => expect(verifyOtp).toHaveBeenCalledWith('player@example.com', '123456')); expect(code.value).toBe('123456');
+  });
+
   it('signs out locally after clearing the server session and redacts provider errors', async () => {
     const reload = vi.fn();
     const signOut = vi.fn(async () => ({ error: null }));

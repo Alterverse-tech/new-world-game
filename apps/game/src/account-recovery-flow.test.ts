@@ -46,9 +46,18 @@ describe('AccountRecoveryFlow', () => {
     const port = makePort(); const updateRecoveredPassword = vi.fn().mockRejectedValueOnce(new Error('network-secret')).mockRejectedValueOnce(new AccountRecoveryRequestError('expired', false));
     const flow = new AccountRecoveryFlow({ port, service: { sendRecoveryEmail: vi.fn(), updateRecoveredPassword } });
     flow.openRecovery('#access_token=recovery-secret&type=recovery'); port.values.password = port.values.confirmation = 'new-password'; await flow.updatePassword();
-    expect(flow.getState().mode).toBe('password');
+    expect(flow.getState().mode).toBe('password'); expect(updateRecoveredPassword).toHaveBeenNthCalledWith(1, 'recovery-secret', 'new-password');
     await flow.updatePassword();
-    expect(flow.getState().mode).toBe('email'); expect(port.values.password).toBe('');
+    expect(updateRecoveredPassword).toHaveBeenNthCalledWith(2, 'recovery-secret', 'new-password'); expect(flow.getState().mode).toBe('email'); expect(port.values.password).toBe('');
     expect(JSON.stringify(port.states)).not.toContain('recovery-secret');
+  });
+
+  it('clears secrets immediately and delays success callback by 650ms', async () => {
+    vi.useFakeTimers();
+    try {
+      const port = makePort(); const onSuccess = vi.fn(); const flow = new AccountRecoveryFlow({ port, service: { sendRecoveryEmail: vi.fn(), updateRecoveredPassword: vi.fn(async () => {}) }, onSuccess });
+      flow.openRecovery('#access_token=recovery-secret&type=recovery'); port.values.password = port.values.confirmation = 'new-password'; const update = flow.updatePassword();
+      await vi.advanceTimersByTimeAsync(0); expect(port.values.password).toBe(''); expect(onSuccess).not.toHaveBeenCalled(); await vi.advanceTimersByTimeAsync(649); expect(onSuccess).not.toHaveBeenCalled(); await vi.advanceTimersByTimeAsync(1); await update; expect(onSuccess).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
   });
 });
