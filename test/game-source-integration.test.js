@@ -60,38 +60,297 @@ function cspConnectSources(html) {
   return connect.slice(1);
 }
 
+function assertCurrentGameCsp(html, label) {
+  const expected = ["'self'", 'blob:', currentSupabaseOrigin].sort();
+  assert.deepEqual(
+    [...cspConnectSources(html)].sort(),
+    expected,
+    `${label} HTML connect-src must contain exactly the intended sources`,
+  );
+}
+
+function sourceTokens(source) {
+  const tokens = [];
+  let index = 0;
+  const punctuators = [
+    '>>>=', '===', '!==', '>>>', '**=', '&&=', '||=', '??=', '<<=', '>>=', '...',
+    '=>', '==', '!=', '<=', '>=', '++', '--', '&&', '||', '??', '+=', '-=', '*=',
+    '/=', '%=', '&=', '|=', '^=', '<<', '>>', '**', '?.',
+  ];
+  const regexPrefixes = new Set([
+    '(', '[', '{', ',', ';', ':', '=', '==', '===', '!=', '!==', '!', '?', '&&',
+    '||', '??', '=>', 'return', 'throw', 'case', 'delete', 'void', 'typeof', 'instanceof',
+    'in', 'of', 'yield', 'await',
+  ]);
+  const escapeValues = new Map([
+    ['n', '\n'], ['r', '\r'], ['t', '\t'], ['b', '\b'], ['f', '\f'], ['v', '\v'],
+    ['0', '\0'],
+  ]);
+
+  const readQuotedString = (quote) => {
+    let value = '';
+    index += 1;
+    while (index < source.length) {
+      const character = source[index];
+      if (character === quote) {
+        index += 1;
+        break;
+      }
+      if (character !== '\\') {
+        value += character;
+        index += 1;
+        continue;
+      }
+      const escaped = source[index + 1];
+      if (escaped === '\n' || escaped === '\r') {
+        index += escaped === '\r' && source[index + 2] === '\n' ? 3 : 2;
+        continue;
+      }
+      value += escapeValues.get(escaped) ?? escaped ?? '';
+      index += 2;
+    }
+    tokens.push({ type: 'string', value });
+  };
+
+  const canStartRegex = () => {
+    const previous = tokens.at(-1);
+    return !previous || regexPrefixes.has(previous.value);
+  };
+
+  const readRegex = () => {
+    index += 1;
+    let inCharacterClass = false;
+    while (index < source.length) {
+      const character = source[index];
+      if (character === '\\') index += 2;
+      else if (character === '[') {
+        inCharacterClass = true;
+        index += 1;
+      } else if (character === ']' && inCharacterClass) {
+        inCharacterClass = false;
+        index += 1;
+      } else if (character === '/' && !inCharacterClass) {
+        index += 1;
+        while (/[A-Za-z]/u.test(source[index] ?? '')) index += 1;
+        break;
+      } else index += 1;
+    }
+    tokens.push({ type: 'regex', value: '' });
+  };
+
+  const scanCode = (templateExpression = false) => {
+    let nestedBraces = 0;
+    while (index < source.length) {
+      const character = source[index];
+      const next = source[index + 1];
+      if (templateExpression && character === '}' && nestedBraces === 0) {
+        index += 1;
+        return;
+      }
+      if (/\s/u.test(character)) {
+        index += 1;
+      } else if (character === '/' && next === '/') {
+        index += 2;
+        while (index < source.length && source[index] !== '\n') index += 1;
+      } else if (character === '/' && next === '*') {
+        index += 2;
+        while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) index += 1;
+        index += 2;
+      } else if (character === '"' || character === "'") {
+        readQuotedString(character);
+      } else if (character === '`') {
+        index += 1;
+        while (index < source.length) {
+          if (source[index] === '\\') index += 2;
+          else if (source[index] === '`') {
+            index += 1;
+            break;
+          } else if (source[index] === '$' && source[index + 1] === '{') {
+            index += 2;
+            scanCode(true);
+          } else index += 1;
+        }
+      } else if (/[A-Za-z_$]/u.test(character)) {
+        const start = index;
+        index += 1;
+        while (/[A-Za-z0-9_$]/u.test(source[index] ?? '')) index += 1;
+        tokens.push({ type: 'identifier', value: source.slice(start, index) });
+      } else if (/[0-9]/u.test(character)) {
+        const start = index;
+        index += 1;
+        while (/[A-Za-z0-9._]/u.test(source[index] ?? '')) index += 1;
+        tokens.push({ type: 'number', value: source.slice(start, index) });
+      } else if (character === '/' && canStartRegex()) {
+        readRegex();
+      } else {
+        const punctuator = punctuators.find((candidate) => source.startsWith(candidate, index)) ?? character;
+        tokens.push({ type: 'punctuator', value: punctuator });
+        index += punctuator.length;
+        if (templateExpression && punctuator === '{') nestedBraces += 1;
+        else if (templateExpression && punctuator === '}') nestedBraces -= 1;
+      }
+    }
+  };
+
+  scanCode();
+  return tokens;
+}
+
+function hasTokenSequence(tokens, values) {
+  return tokens.some((_, start) => values.every((value, offset) => tokens[start + offset]?.value === value));
+}
+
+function hasNewExpression(tokens, name) {
+  return hasTokenSequence(tokens, ['new', name, '(']);
+}
+
+function hasExportedFunction(tokens, name) {
+  return hasTokenSequence(tokens, ['export', 'function', name, '(']);
+}
+
+function hasCallExpression(tokens, name) {
+  return tokens.some((token, index) =>
+    token.value === name
+    && tokens[index + 1]?.value === '('
+    && tokens[index - 1]?.value !== 'function'
+    && tokens[index - 1]?.value !== 'new');
+}
+
+function hasGlobalWebSocketReplacement(tokens) {
+  const assignmentOperators = new Set(['=', '&&=', '||=', '??=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=']);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const globalName = tokens[index]?.value;
+    if (globalName === 'window' || globalName === 'globalThis') {
+      if (
+        tokens[index + 1]?.value === '.'
+        && tokens[index + 2]?.value === 'WebSocket'
+        && assignmentOperators.has(tokens[index + 3]?.value)
+      ) return true;
+      if (
+        tokens[index + 1]?.value === '['
+        && tokens[index + 2]?.type === 'string'
+        && tokens[index + 2]?.value === 'WebSocket'
+        && tokens[index + 3]?.value === ']'
+        && assignmentOperators.has(tokens[index + 4]?.value)
+      ) return true;
+    }
+    const owner = tokens[index]?.value;
+    const method = tokens[index + 2]?.value;
+    if (
+      ((owner === 'Object' && method === 'defineProperty') || (owner === 'Reflect' && method === 'set'))
+      && tokens[index + 1]?.value === '.'
+      && tokens[index + 3]?.value === '('
+      && (tokens[index + 4]?.value === 'window' || tokens[index + 4]?.value === 'globalThis')
+      && tokens[index + 5]?.value === ','
+      && tokens[index + 6]?.type === 'string'
+      && tokens[index + 6]?.value === 'WebSocket'
+    ) return true;
+  }
+  return false;
+}
+
 function assertImports(source, importedName, moduleSpecifier) {
-  const uncommented = withoutComments(source);
-  const escapedModule = moduleSpecifier.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-  const declaration = new RegExp(
-    `(?:^|\\n)\\s*import\\s*\\{([^}]*)\\}\\s*from\\s*['"]${escapedModule}['"]\\s*;`,
-    'u',
-  ).exec(uncommented);
-  assert.ok(declaration, `source must import from ${moduleSpecifier}`);
-  const importedNames = declaration[1]
-    .split(',')
-    .map((name) => name.trim().replace(/^type\s+/u, '').split(/\s+as\s+/u)[0]);
-  assert.ok(importedNames.includes(importedName), `source must import ${importedName} from ${moduleSpecifier}`);
+  const tokens = sourceTokens(source);
+  const matchingImport = tokens.some((token, start) => {
+    if (token.value !== 'import') return false;
+    let end = start + 1;
+    while (end < tokens.length && tokens[end].value !== ';') end += 1;
+    const declaration = tokens.slice(start, end);
+    const from = declaration.findIndex((candidate) => candidate.value === 'from');
+    return from > 0
+      && declaration[from + 1]?.type === 'string'
+      && declaration[from + 1]?.value === moduleSpecifier
+      && declaration.slice(0, from).some((candidate) => candidate.value === importedName);
+  });
+  assert.ok(matchingImport, `source must import ${importedName} from ${moduleSpecifier}`);
 }
 
 async function runtimeBuildInputs() {
+  const textExtensions = /\.(?:[cm]?js|jsx|tsx?|css|html|json)$/u;
   const files = [
     'apps/game/index.html',
     'apps/game/package.json',
     'apps/game/vite.config.ts',
   ];
-  const visit = async (relativeDirectory) => {
+  const visit = async (relativeDirectory, excludeTests) => {
     for (const entry of await readdir(new URL(`${relativeDirectory}/`, root), { withFileTypes: true })) {
       const relative = `${relativeDirectory}/${entry.name}`;
-      if (entry.isDirectory()) await visit(relative);
-      else if ((entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) || entry.name.endsWith('.css')) {
-        files.push(relative);
-      }
+      if (entry.isDirectory()) await visit(relative, excludeTests);
+      else if (
+        textExtensions.test(entry.name)
+        && !(excludeTests && /\.test\.[cm]?[jt]sx?$/u.test(entry.name))
+      ) files.push(relative);
     }
   };
-  await visit('apps/game/src');
+  await visit('apps/game/src', true);
+  await visit('apps/game/public', false);
   return files;
 }
+
+test('runtime build input inventory includes Vite public text assets but not binary blobs', async () => {
+  const inputs = await runtimeBuildInputs();
+  assert.ok(inputs.includes('apps/game/public/registry.json'));
+  assert.ok(inputs.includes('apps/game/public/levels/community-signal-demo/main.js'));
+  assert.ok(inputs.includes('apps/game/public/levels/community-signal-demo/level.json'));
+  assert.ok(!inputs.some((relative) => relative.endsWith('.glb')));
+});
+
+test('source structure scanner ignores literal decoys and recognizes executable ownership', () => {
+  const decoys = sourceTokens([
+    'const examples = [',
+    "  'new AccountLoginFlow()',",
+    '  "quitWhiteRoomGame()",',
+    '  `export function quitWhiteRoomGame() {}`,',
+    String.raw`  /new AccountLoginFlow\(\)/,`,
+    '];',
+    '// new AccountLoginFlow(); quitWhiteRoomGame();',
+    '/* export function quitWhiteRoomGame() {} */',
+  ].join('\n'));
+  assert.equal(hasNewExpression(decoys, 'AccountLoginFlow'), false);
+  assert.equal(hasCallExpression(decoys, 'quitWhiteRoomGame'), false);
+  assert.equal(hasExportedFunction(decoys, 'quitWhiteRoomGame'), false);
+
+  const executable = sourceTokens(`
+    new AccountLoginFlow();
+    export function quitWhiteRoomGame() {}
+    quitWhiteRoomGame();
+  `);
+  assert.equal(hasNewExpression(executable, 'AccountLoginFlow'), true);
+  assert.equal(hasExportedFunction(executable, 'quitWhiteRoomGame'), true);
+  assert.equal(hasCallExpression(executable, 'quitWhiteRoomGame'), true);
+});
+
+test('WebSocket replacement scanner catches executable forms and ignores quoted examples', () => {
+  for (const source of [
+    'window.WebSocket = FakeSocket;',
+    "globalThis['WebSocket'] = FakeSocket;",
+    "Object.defineProperty(window, 'WebSocket', { value: FakeSocket });",
+    'Reflect.set(globalThis, "WebSocket", FakeSocket);',
+    '`template ${window.WebSocket = FakeSocket}`;',
+  ]) assert.equal(hasGlobalWebSocketReplacement(sourceTokens(source)), true, source);
+
+  const examples = sourceTokens([
+    'const docs = [',
+    "  'window.WebSocket = FakeSocket',",
+    "  \"globalThis['WebSocket'] = FakeSocket\",",
+    "  `Object.defineProperty(window, 'WebSocket', value)`,",
+    String.raw`  /window\.WebSocket\s*=/,`,
+    '];',
+    "// Reflect.set(globalThis, 'WebSocket', FakeSocket);",
+  ].join('\n'));
+  assert.equal(hasGlobalWebSocketReplacement(examples), false);
+});
+
+test('game CSP connect-src accepts exactly the intended sources', () => {
+  const html = (sources) => `<meta http-equiv="Content-Security-Policy" content="connect-src ${sources}">`;
+  assert.doesNotThrow(() => assertCurrentGameCsp(html(`'self' blob: ${currentSupabaseOrigin}`), 'fixture'));
+  for (const sources of [
+    `'self' blob: ${currentSupabaseOrigin} https:`,
+    `'self' blob: ${currentSupabaseOrigin} wss:`,
+    `'self' blob: ${currentSupabaseOrigin} *`,
+    `'self' blob: ${currentSupabaseOrigin} ${currentSupabaseOrigin}`,
+  ]) assert.throws(() => assertCurrentGameCsp(html(sources), 'fixture'));
+});
 
 test('recovered game source contains a reproducible Vite TypeScript project', async () => {
   const required = [
@@ -154,23 +413,20 @@ test('game source owns every current production overlay behavior', async () => {
   ]) assert.ok(requiredIds.has(id), `game source HTML must own #${id}`);
 
   assertImports(main, 'captureRecoveryHash', './account-recovery-flow');
-  assert.match(withoutComments(main), /\bcaptureRecoveryHash\s*\(/u);
+  assert.equal(hasCallExpression(sourceTokens(main), 'captureRecoveryHash'), true);
   for (const [owner, moduleSpecifier] of [
     ['AccountLoginFlow', './account-login-flow'],
     ['AccountRegistrationFlow', './account-registration-flow'],
     ['AccountRecoveryFlow', './account-recovery-flow'],
   ]) {
     assertImports(account, owner, moduleSpecifier);
-    assert.match(withoutComments(account), new RegExp(`\\bnew\\s+${owner}\\s*\\(`, 'u'));
+    assert.equal(hasNewExpression(sourceTokens(account), owner), true, `account source must instantiate ${owner}`);
   }
   assertImports(multiplayer, 'PlayerTelemetryController', './player-telemetry');
-  assert.match(withoutComments(multiplayer), /\bnew\s+PlayerTelemetryController\s*\(/u);
-  const gameSource = withoutComments(game);
-  assert.match(gameSource, /\bexport\s+function\s+quitWhiteRoomGame\s*\(/u);
-  assert.ok(
-    [...gameSource.matchAll(/\bquitWhiteRoomGame\s*\(/gu)].length >= 2,
-    'white-room-game must both declare and call quitWhiteRoomGame',
-  );
+  assert.equal(hasNewExpression(sourceTokens(multiplayer), 'PlayerTelemetryController'), true);
+  const gameTokens = sourceTokens(game);
+  assert.equal(hasExportedFunction(gameTokens, 'quitWhiteRoomGame'), true);
+  assert.equal(hasCallExpression(gameTokens, 'quitWhiteRoomGame'), true);
   assert.match(withoutComments(theme), /(?:^|\})\s*\.player-stats-panel\s*\{/u);
 
   const overlayAssets = [
@@ -194,25 +450,17 @@ test('game source owns every current production overlay behavior', async () => {
     }
   }
 
-  for (const relative of buildInputs.filter((file) => file.endsWith('.ts'))) {
-    const source = withoutComments(await readFile(new URL(relative, root), 'utf8'));
-    for (const pattern of [
-      /\b(?:window|globalThis)\s*(?:\.\s*WebSocket|\[\s*["']WebSocket["']\s*\])\s*=/u,
-      /\bObject\.defineProperty\s*\(\s*(?:window|globalThis)\s*,\s*["']WebSocket["']/u,
-      /\bReflect\.set\s*\(\s*(?:window|globalThis)\s*,\s*["']WebSocket["']/u,
-    ]) assert.doesNotMatch(source, pattern, `${relative} must not replace the global WebSocket`);
+  for (const relative of buildInputs.filter((file) => /\.[cm]?[jt]sx?$/u.test(file))) {
+    const source = await readFile(new URL(relative, root), 'utf8');
+    assert.equal(
+      hasGlobalWebSocketReplacement(sourceTokens(source)),
+      false,
+      `${relative} must not replace the global WebSocket`,
+    );
   }
 
   for (const [label, document] of [
     ['source', html],
     ['production', productionHtml],
-  ]) {
-    const connectSources = cspConnectSources(document);
-    assert.ok(connectSources.includes(currentSupabaseOrigin), `${label} HTML must allow the current Supabase origin`);
-    assert.deepEqual(
-      connectSources.filter((source) => /^https?:\/\//u.test(source)),
-      [currentSupabaseOrigin],
-      `${label} HTML must not allow another remote connect-src origin`,
-    );
-  }
+  ]) assertCurrentGameCsp(document, label);
 });
