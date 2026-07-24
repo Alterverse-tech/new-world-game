@@ -1,4 +1,4 @@
-import { normalizeAccountEmail } from './account-controller';
+import { AccountRecoveryRequestError, normalizeAccountEmail } from './account-auth-service';
 import type { AuthMessageState } from './account-login-flow';
 
 export interface RecoveryHashLocation { hash: string; pathname: string; search: string; }
@@ -8,7 +8,6 @@ export function captureRecoveryHash({ location, replaceState }: { location: Reco
   catch { return null; }
   replaceState(null, '', `${location.pathname}${location.search}`); return raw;
 }
-export class AccountRecoveryRequestError extends Error { public constructor(message: string, public readonly canRetryPassword: boolean) { super(message); } }
 export type RecoveryMode = 'email' | 'password';
 export interface AccountRecoveryState { mode: RecoveryMode; busy: boolean; message: string; messageState: AuthMessageState; }
 export interface AccountRecoveryPort { readEmail(): string; setEmail(email: string): void; readPassword(): string; readConfirmation(): string; clearSecrets(): void; render(state: AccountRecoveryState): void; focusEmail(): void; focusPassword(): void; focusConfirmation(): void; }
@@ -42,7 +41,7 @@ export class AccountRecoveryFlow {
     if (!this.token) { this.open(); this.set({ message: INVALID_LINK, messageState: 'error' }); return; }
     this.set({ busy: true, message: '正在保存新密码…', messageState: 'loading' });
     try { await this.d.service.updateRecoveredPassword(this.token, password); this.clear(); this.set({ mode: 'email', message: '密码已更新，请使用新密码登录。', messageState: 'success' }); await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 650)); this.d.onSuccess?.(); }
-    catch (error) { if (error instanceof AccountRecoveryRequestError && error.canRetryPassword) this.set({ message: error.message, messageState: 'error' }); else { this.clear(); this.set({ mode: 'email', message: INVALID_LINK, messageState: 'error' }); this.d.port.focusEmail(); } }
+    catch (error) { if (error instanceof AccountRecoveryRequestError && error.canRetryPassword) this.set({ busy: false, message: error.message, messageState: 'error' }); else { this.clear(); this.set({ mode: 'email', busy: false, message: INVALID_LINK, messageState: 'error' }); this.d.port.focusEmail(); } }
     finally { this.set({ busy: false }); }
   }
   public cancel(): void { if (!this.state.busy) this.open(); }

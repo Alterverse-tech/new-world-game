@@ -1,5 +1,5 @@
 import type { Session } from '@supabase/supabase-js';
-import { normalizeAccountEmail } from './account-controller';
+import { normalizeAccountEmail } from './account-auth-service';
 import { OTP_COOLDOWN_MS, SIX_DIGITS, type AuthMessageState, type StoragePort } from './account-login-flow';
 
 export type RegistrationStage = 'details' | 'verify' | 'complete';
@@ -60,7 +60,7 @@ export class AccountRegistrationFlow {
   private async verify(token: string): Promise<void> {
     this.set({ busy: true, message: '正在验证邮箱并创建账号…', messageState: 'loading' });
     try { const session = await this.d.service.verifyOtp(this.state.email, token); await this.d.service.setPassword(this.password); await this.d.service.exchangeSession(session); this.clear(); this.remove(); this.set({ stage: 'complete', cooldownSeconds: 0, message: '注册完成，正在进入 WhiteRoom…', messageState: 'success' }); await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 700)); this.d.reload(); }
-    catch { this.set({ stage: 'verify', message: '验证码验证失败，请检查后重试。', messageState: 'error' }); this.d.port.focusToken(); }
+    catch { this.set({ stage: 'verify', busy: false, message: '验证码验证失败，请检查后重试。', messageState: 'error' }); this.d.port.focusToken(); }
     finally { if (this.state.stage !== 'complete') this.set({ busy: false }); }
   }
   private clear(): void { this.password = ''; this.d.port.clearSecrets(); }

@@ -1,5 +1,5 @@
 import type { Session } from '@supabase/supabase-js';
-import { normalizeAccountEmail } from './account-controller';
+import { normalizeAccountEmail } from './account-auth-service';
 
 export type LoginStage = 'email' | 'verify';
 export type AuthMessageState = 'guest' | 'loading' | 'success' | 'error';

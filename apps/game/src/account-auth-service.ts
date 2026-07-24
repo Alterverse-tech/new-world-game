@@ -3,7 +3,6 @@ import {
   type Session,
   type SupabaseClient,
 } from '@supabase/supabase-js';
-import { AccountRecoveryRequestError } from './account-recovery-flow';
 
 export interface EnabledAuthConfig {
   enabled: true;
@@ -26,6 +25,21 @@ interface AuthServiceDependencies {
 
 function safeString(value: unknown, maximum: number): string | null {
   return typeof value === 'string' && value.length > 0 && value.length <= maximum ? value : null;
+}
+
+export function normalizeAccountEmail(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const email = value.trim().toLowerCase();
+  if (!email || email.length > 254 || /\s/.test(email)) return null;
+  const separator = email.lastIndexOf('@');
+  if (separator < 1 || separator > 64 || separator === email.length - 1) return null;
+  const local = email.slice(0, separator); const domain = email.slice(separator + 1); const labels = domain.split('.');
+  if (local.startsWith('.') || local.endsWith('.') || local.includes('..') || labels.length < 2 || domain.startsWith('.') || domain.endsWith('.') || domain.includes('..') || !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/i.test(local) || labels.some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))) return null;
+  return email;
+}
+
+export class AccountRecoveryRequestError extends Error {
+  public constructor(message: string, public readonly canRetryPassword: boolean) { super(message); }
 }
 
 export function parseAuthConfig(value: unknown): AuthConfig {
@@ -188,7 +202,8 @@ async function safeRecoveryError(response: Response, fallback: string): Promise<
     const body = await response.json() as { error_code?: unknown; code?: unknown };
     const code = typeof body.error_code === 'string' ? body.error_code : typeof body.code === 'string' ? body.code : '';
     const messages: Record<string, string> = { email_address_invalid: '邮箱地址无效，请检查后重试。', over_email_send_rate_limit: '重置邮件发送过于频繁，请稍后再试。', over_request_rate_limit: '请求过于频繁，请稍后再试。', weak_password: '新密码强度不足，请使用至少 8 位密码。', same_password: '新密码不能与当前密码相同。' };
-    return new AccountRecoveryRequestError(messages[code] ?? fallback, code === 'weak_password' || code === 'same_password');
+    const fatal = response.status === 401 || ['invalid_token', 'invalid_grant', 'access_denied'].includes(code);
+    return new AccountRecoveryRequestError(messages[code] ?? fallback, !fatal);
   } catch { return new AccountRecoveryRequestError(fallback, false); }
 }
 

@@ -44,7 +44,6 @@ interface ProfileRow {
 }
 
 const AUTH_RETURN_CHANNEL_KEY = 'whiteroom.auth.return-channel';
-const ACCOUNT_EMAIL_MAX_LENGTH = 254;
 
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -77,29 +76,6 @@ function profileUpdateValues(nickname: string, avatarId: string): Pick<ProfileRo
   return { game_nickname: gameNickname, avatar_id: normalizedAvatarId };
 }
 
-export function normalizeAccountEmail(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const email = value.trim().toLowerCase();
-  if (!email || email.length > ACCOUNT_EMAIL_MAX_LENGTH || /\s/.test(email)) return null;
-  const separator = email.lastIndexOf('@');
-  if (separator < 1 || separator > 64 || separator === email.length - 1) return null;
-  const local = email.slice(0, separator);
-  const domain = email.slice(separator + 1);
-  const domainLabels = domain.split('.');
-  if (
-    local.startsWith('.')
-    || local.endsWith('.')
-    || local.includes('..')
-    || domainLabels.length < 2
-    || domain.startsWith('.')
-    || domain.endsWith('.')
-    || domain.includes('..')
-    || !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/i.test(local)
-    || domainLabels.some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))
-  ) return null;
-  return email;
-}
-
 export function accountDisplayName(user: User, profile?: ProfileRow | null): string {
   const metadata = user.user_metadata ?? {};
   return safeDisplayString(profile?.game_nickname, 80)
@@ -127,6 +103,8 @@ function cleanAuthParameters(): void {
   }
   if (changed) window.history.replaceState(null, '', url);
 }
+
+export { normalizeAccountEmail } from './account-auth-service';
 
 function rememberChannel(): void {
   try {
