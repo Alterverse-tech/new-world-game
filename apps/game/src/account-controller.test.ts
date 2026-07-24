@@ -64,7 +64,16 @@ function sessionActions(controller: AccountController): {
 class FakeElement extends EventTarget {
   public readonly listenerCalls: Array<{ type: string; options: boolean | AddEventListenerOptions | undefined }> = [];
   public readonly dataset: Record<string, string> = {};
-  public readonly classList = { toggle: vi.fn() };
+  private readonly classes = new Set<string>();
+  public readonly classList = {
+    toggle: vi.fn((name: string, force?: boolean) => {
+      const enabled = force ?? !this.classes.has(name);
+      if (enabled) this.classes.add(name);
+      else this.classes.delete(name);
+      return enabled;
+    }),
+    contains: vi.fn((name: string) => this.classes.has(name)),
+  };
   public textContent = '';
   public value = '';
   public disabled = false;
@@ -148,7 +157,24 @@ function initializedController(authService: object) {
     'lobby-channel-input',
   ].map((id) => [id, element()]));
   const timeouts: Array<{ id: number; callback: () => void; delay: number }> = [];
-  vi.stubGlobal('document', { getElementById: (id: string) => elements.get(id) ?? null });
+  const registrationSteps = ['details', 'verify', 'complete'].map((stage) => {
+    const step = element();
+    step.dataset.registerStep = stage;
+    return step;
+  });
+  const recoverySteps = ['email', 'password'].map((mode) => {
+    const step = element();
+    step.dataset.resetStep = mode;
+    return step;
+  });
+  vi.stubGlobal('document', {
+    getElementById: (id: string) => elements.get(id) ?? null,
+    querySelectorAll: (selector: string) => {
+      if (selector === '[data-register-step]') return registrationSteps;
+      if (selector === '[data-reset-step]') return recoverySteps;
+      return [];
+    },
+  });
   vi.stubGlobal('window', {
     location: { href: 'https://altverse.fun/', origin: 'https://altverse.fun', reload: vi.fn() },
     history: { replaceState: vi.fn() },
@@ -171,7 +197,13 @@ function initializedController(authService: object) {
     setItem: vi.fn(),
     removeItem: vi.fn(),
   });
-  return { controller: new AccountController(authService as never), elements, timeouts };
+  return {
+    controller: new AccountController(authService as never),
+    elements,
+    recoverySteps,
+    registrationSteps,
+    timeouts,
+  };
 }
 
 function enableAccountUi(controller: AccountController): void {
@@ -512,6 +544,51 @@ describe('email auth operations', () => {
     await vi.waitFor(() => expect(elements.get('account-register-code-email')!.textContent).toBe('player@example.com'));
     const code = elements.get('account-register-code')!; code.value = '12a34 5678'; code.dispatchEvent(new Event('input'));
     await vi.waitFor(() => expect(verifyOtp).toHaveBeenCalledWith('player@example.com', '123456')); expect(code.value).toBe('123456');
+  });
+
+  it('renders registration completion steps and the completed submit label', async () => {
+    const session = { access_token: 'private-token' } as Session;
+    const { elements, registrationSteps } = initializedController({
+      sendOtp: vi.fn(async () => {}),
+      verifyOtp: vi.fn(async () => session),
+      setPassword: vi.fn(async () => {}),
+      exchangeSession: vi.fn(async () => {}),
+    });
+    elements.get('account-register-btn')!.dispatchEvent(new Event('click'));
+    elements.get('account-register-email')!.value = 'player@example.com';
+    elements.get('account-register-password')!.value = 'register-password';
+    elements.get('account-register-password-confirm')!.value = 'register-password';
+    elements.get('account-register-form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(elements.get('account-register-code')!.disabled).toBe(false));
+    elements.get('account-register-code')!.value = '123456';
+    elements.get('account-register-form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+
+    await vi.waitFor(() => expect(elements.get('account-register-submit')!.textContent).toBe('注册完成'));
+    expect(registrationSteps[0]!.classList.contains('is-complete')).toBe(true);
+    expect(registrationSteps[0]!.classList.contains('is-active')).toBe(false);
+    expect(registrationSteps[1]!.classList.contains('is-complete')).toBe(true);
+    expect(registrationSteps[1]!.classList.contains('is-active')).toBe(false);
+    expect(registrationSteps[2]!.classList.contains('is-complete')).toBe(false);
+    expect(registrationSteps[2]!.classList.contains('is-active')).toBe(true);
+  });
+
+  it('renders recovery email and password step progress', () => {
+    const { recoverySteps } = initializedController({});
+    expect(recoverySteps[0]!.classList.contains('is-active')).toBe(true);
+    expect(recoverySteps[0]!.classList.contains('is-complete')).toBe(false);
+    expect(recoverySteps[1]!.classList.contains('is-active')).toBe(false);
+    expect(recoverySteps[1]!.classList.contains('is-complete')).toBe(false);
+
+    const service = {
+      sendRecoveryEmail: vi.fn(),
+      updateRecoveredPassword: vi.fn(),
+    };
+    const controller = new AccountController(service as never, '#access_token=recovery-secret&type=recovery');
+    expect(controller.getTextState()).not.toHaveProperty('accessToken');
+    expect(recoverySteps[0]!.classList.contains('is-active')).toBe(false);
+    expect(recoverySteps[0]!.classList.contains('is-complete')).toBe(true);
+    expect(recoverySteps[1]!.classList.contains('is-active')).toBe(true);
+    expect(recoverySteps[1]!.classList.contains('is-complete')).toBe(false);
   });
 
   it('prefills reset email through bubbling open and visibly ticks registration resend', async () => {

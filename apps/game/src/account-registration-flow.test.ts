@@ -98,4 +98,77 @@ describe('AccountRegistrationFlow', () => {
     await flow.submit(); await flow.submit(); await flow.submit();
     expect(verifyOtp).toHaveBeenCalledOnce(); expect(setPassword).toHaveBeenCalledTimes(2); expect(exchangeSession).toHaveBeenCalledOnce(); expect(JSON.stringify(flow.getState())).not.toContain('private');
   });
+
+  it('retries a failed session exchange without re-verifying or setting the password again', async () => {
+    const ui = makePort();
+    const session = { access_token: 'private-session' } as Session;
+    const verifyOtp = vi.fn(async () => session);
+    const setPassword = vi.fn(async () => {});
+    const exchangeSession = vi.fn()
+      .mockRejectedValueOnce(new Error('exchange failed'))
+      .mockResolvedValueOnce(undefined);
+    const flow = new AccountRegistrationFlow({
+      port: ui,
+      service: { sendOtp: vi.fn(async () => {}), verifyOtp, setPassword, exchangeSession },
+      storage: { get: vi.fn(), set: vi.fn(), delete: vi.fn() },
+      now: Date.now,
+      redirectTo: 'https://altverse.fun/',
+      reload: vi.fn(),
+    });
+
+    await flow.submit();
+    await flow.submit();
+    await flow.submit();
+
+    expect(verifyOtp).toHaveBeenCalledTimes(1);
+    expect(setPassword).toHaveBeenCalledTimes(1);
+    expect(exchangeSession).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(flow.getState())).not.toContain('private-session');
+    expect(ui.values).toEqual({ email: 'new@example.com', password: '', confirmation: '', token: '' });
+    expect(flow as unknown as { password: string; verifiedSession: Session | null; passwordSet: boolean }).toMatchObject({
+      password: '',
+      verifiedSession: null,
+      passwordSet: false,
+    });
+  });
+
+  it('retries OTP verification after a verification failure and clears private state on cancel', async () => {
+    const ui = makePort();
+    const session = { access_token: 'private-session' } as Session;
+    const verifyOtp = vi.fn()
+      .mockRejectedValueOnce(new Error('invalid code'))
+      .mockResolvedValueOnce(session);
+    const setPassword = vi.fn().mockRejectedValueOnce(new Error('password unavailable'));
+    const flow = new AccountRegistrationFlow({
+      port: ui,
+      service: {
+        sendOtp: vi.fn(async () => {}),
+        verifyOtp,
+        setPassword,
+        exchangeSession: vi.fn(),
+      },
+      storage: { get: vi.fn(), set: vi.fn(), delete: vi.fn() },
+      now: Date.now,
+      redirectTo: 'https://altverse.fun/',
+      reload: vi.fn(),
+    });
+
+    await flow.submit();
+    await flow.submit();
+    expect(verifyOtp).toHaveBeenCalledTimes(1);
+    expect(setPassword).not.toHaveBeenCalled();
+    await flow.submit();
+    expect(verifyOtp).toHaveBeenCalledTimes(2);
+    expect(setPassword).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(flow.getState())).not.toContain('private-session');
+
+    flow.cancel();
+
+    expect(ui.values).toEqual({ email: '', password: '', confirmation: '', token: '' });
+    expect(flow as unknown as { password: string; verifiedSession: Session | null; passwordSet: boolean }).toMatchObject({
+      password: '',
+      verifiedSession: null,
+      passwordSet: false,
+    });
+  });
 });
