@@ -36,6 +36,7 @@ export interface LoginService {
 
 export const OTP_COOLDOWN_MS = 60_000;
 export const OTP_COOLDOWN_KEY = 'whiteroom.auth.login-otp-cooldown.v1';
+export const OTP_SUCCESS_RELOAD_DELAY_MS = 450;
 export const SIX_DIGITS = /^\d{6}$/u;
 
 export function browserStoragePort(storage: Storage): StoragePort {
@@ -145,6 +146,7 @@ export class AccountLoginFlow {
       return;
     }
     this.setState({ busy: true, email, message: '正在发送验证码…', messageState: 'loading' });
+    let sent = false;
     try {
       await this.dependencies.service.sendOtp(email, this.dependencies.redirectTo);
       this.saveCooldown(email);
@@ -153,11 +155,12 @@ export class AccountLoginFlow {
         stage: 'verify', cooldownSeconds: Math.ceil(OTP_COOLDOWN_MS / 1_000),
         message: '验证码已发送，请查看邮箱。', messageState: 'success',
       });
-      this.dependencies.port.focusToken();
+      sent = true;
     } catch {
       this.setState({ message: '验证码发送失败，请稍后重试。', messageState: 'error' });
     } finally {
       this.setState({ busy: false });
+      if (sent) this.dependencies.port.focusToken();
     }
   }
 
@@ -172,19 +175,24 @@ export class AccountLoginFlow {
 
   private async verify(token: string): Promise<void> {
     this.setState({ busy: true, message: '正在验证邮箱验证码…', messageState: 'loading' });
+    let completed = false;
     try {
       const session = await this.dependencies.service.verifyOtp(this.state.email, token);
       await this.dependencies.service.exchangeSession(session);
       this.deleteCooldown();
       this.setState({ message: '登录成功，正在进入 WhiteRoom…', messageState: 'success' });
+      await new Promise<void>((resolve) => {
+        globalThis.setTimeout(resolve, OTP_SUCCESS_RELOAD_DELAY_MS);
+      });
       this.dependencies.reload();
+      completed = true;
     } catch {
       this.setState({
         stage: 'verify', message: '验证码验证失败，请检查后重试。', messageState: 'error',
       });
       this.dependencies.port.focusToken();
     } finally {
-      this.setState({ busy: false });
+      if (!completed) this.setState({ busy: false });
     }
   }
 

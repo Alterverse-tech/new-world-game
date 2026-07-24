@@ -70,7 +70,8 @@ class FakeElement extends EventTarget {
   public disabled = false;
   public open = false;
   public hidden = false;
-  public readonly focus = vi.fn();
+  public readonly focusDisabledAtCall: boolean[] = [];
+  public readonly focus = vi.fn(() => this.focusDisabledAtCall.push(this.disabled));
   public readonly showModal = vi.fn(() => { this.open = true; });
   public readonly close = vi.fn(() => { this.open = false; });
 
@@ -145,6 +146,15 @@ function initializedController(authService: object) {
     removeItem: vi.fn(),
   });
   return { controller: new AccountController(authService as never), elements, timeouts };
+}
+
+function enableAccountUi(controller: AccountController): void {
+  const internals = controller as unknown as {
+    state: { ready: boolean; available: boolean; mode: 'guest'; phase: 'guest' };
+    render(): void;
+  };
+  internals.state = { ...internals.state, ready: true, available: true, mode: 'guest', phase: 'guest' };
+  internals.render();
 }
 
 afterEach(() => {
@@ -318,6 +328,11 @@ describe('email auth operations', () => {
     expect(form.listenerCalls).toContainEqual({ type: 'submit', options: undefined });
     expect(elements.get('account-login-otp-panel')!.hidden).toBe(false);
     expect(elements.get('account-login-otp-email')!.textContent).toBe('player@example.com');
+    expect(timeouts).toHaveLength(1);
+    now.mockReturnValue(60_000);
+    timeouts[0]!.callback();
+    expect(elements.get('account-login-otp-resend')!.disabled).toBe(false);
+    expect(elements.get('account-login-otp-resend')!.textContent).toBe('重新发送验证码');
     const token = elements.get('account-login-otp-input')!;
     token.value = '123456';
     const loginButton = elements.get('account-login-btn')!;
@@ -329,16 +344,6 @@ describe('email auth operations', () => {
     expect(loginClick.defaultPrevented).toBe(true);
     expect(loginButton.listenerCalls).toContainEqual({ type: 'click', options: undefined });
     expect(elements.get('account-register-btn')!.listenerCalls).toEqual([]);
-
-    elements.get('account-login-otp-change')!.dispatchEvent(new Event('click'));
-    email.value = 'player@example.com';
-    form.dispatchEvent(new Event('submit', { cancelable: true }));
-    await vi.waitFor(() => expect(sendOtp).toHaveBeenCalledTimes(2));
-    expect(timeouts).toHaveLength(1);
-    now.mockReturnValue(60_000);
-    timeouts[0]!.callback();
-    expect(elements.get('account-login-otp-resend')!.disabled).toBe(false);
-    expect(elements.get('account-login-otp-resend')!.textContent).toBe('重新发送验证码');
   });
 
   it('remembers a valid lobby channel before reloading after OTP verification', async () => {
@@ -356,6 +361,52 @@ describe('email auth operations', () => {
 
     await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalledOnce());
     expect(sessionStorage.setItem).toHaveBeenCalledWith('whiteroom.auth.return-channel', '778899');
+  });
+
+  it('sanitizes bubbling OTP input and auto-verifies exactly six digits', async () => {
+    const session = { access_token: 'private-access-token', user: user({ email: 'player@example.com' }) } as Session;
+    const sendOtp = vi.fn(async () => {});
+    const verifyOtp = vi.fn(async () => session);
+    const exchangeSession = vi.fn(async () => {});
+    const { controller, elements } = initializedController({ sendOtp, verifyOtp, exchangeSession });
+    enableAccountUi(controller);
+    elements.get('account-email-input')!.value = 'player@example.com';
+    elements.get('account-auth-form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(sendOtp).toHaveBeenCalledOnce());
+    const otp = elements.get('account-login-otp-input')!;
+
+    otp.value = '12a34';
+    otp.dispatchEvent(new Event('input'));
+    expect(otp.value).toBe('1234');
+    expect(verifyOtp).not.toHaveBeenCalled();
+
+    otp.value = '12a34 5678';
+    otp.dispatchEvent(new Event('input'));
+    await vi.waitFor(() => expect(verifyOtp).toHaveBeenCalledWith('player@example.com', '123456'));
+    expect(otp.value).toBe('123456');
+    expect(exchangeSession).toHaveBeenCalledWith(session);
+    expect(otp.listenerCalls).toContainEqual({ type: 'input', options: undefined });
+  });
+
+  it('disables login and close controls while OTP work is in flight', async () => {
+    let finishSend!: () => void;
+    const sendOtp = vi.fn(() => new Promise<void>((resolve) => { finishSend = resolve; }));
+    const { controller, elements } = initializedController({
+      sendOtp,
+      verifyOtp: vi.fn(async () => ({ access_token: 'private-token' } as Session)),
+      exchangeSession: vi.fn(async () => {}),
+    });
+    enableAccountUi(controller);
+    elements.get('account-email-input')!.value = 'player@example.com';
+    elements.get('account-auth-form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(sendOtp).toHaveBeenCalledOnce());
+
+    expect(elements.get('account-login-btn')!.disabled).toBe(true);
+    expect(elements.get('account-auth-close')!.disabled).toBe(true);
+
+    finishSend();
+    await vi.waitFor(() => expect(elements.get('account-login-btn')!.disabled).toBe(false));
+    expect(elements.get('account-login-otp-input')!.focusDisabledAtCall).toEqual([false]);
   });
 
   it('signs out locally after clearing the server session and redacts provider errors', async () => {

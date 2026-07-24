@@ -54,7 +54,16 @@ describe('AccountLoginFlow', () => {
     expect(service.sendOtp).toHaveBeenCalledWith('player@example.com', 'https://altverse.fun/');
     expect(flow.getState()).toMatchObject({ stage: 'verify', email: 'player@example.com', busy: false });
 
-    await flow.submit();
+    vi.useFakeTimers();
+    try {
+      const verification = flow.submit();
+      await vi.advanceTimersByTimeAsync(449);
+      expect(reload).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await verification;
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(service.verifyOtp).toHaveBeenCalledWith('player@example.com', '123456');
     expect(service.exchangeSession).toHaveBeenCalledWith(session);
@@ -125,5 +134,29 @@ describe('AccountLoginFlow', () => {
     } as unknown as Storage;
 
     expect(browserStoragePort(browserStorage).get('missing')).toBeUndefined();
+  });
+
+  it('focuses the OTP field only after a successful send makes it interactive', async () => {
+    const ui = port({ email: 'player@example.com', token: '' });
+    let tokenDisabled = true;
+    const focusDisabled: boolean[] = [];
+    ui.render = (state) => {
+      tokenDisabled = state.busy || state.stage !== 'verify';
+      ui.renders.push(state);
+    };
+    ui.focusToken = () => { focusDisabled.push(tokenDisabled); };
+    const flow = new AccountLoginFlow({
+      port: ui,
+      service: {
+        sendOtp: vi.fn(async () => {}),
+        verifyOtp: vi.fn(async () => ({ access_token: 'private-token' } as Session)),
+        exchangeSession: vi.fn(async () => {}),
+      },
+      storage: storage(), now: () => 1_000, redirectTo: 'https://altverse.fun/', reload: vi.fn(),
+    });
+
+    await flow.submit();
+
+    expect(focusDisabled).toEqual([false]);
   });
 });

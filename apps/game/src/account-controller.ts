@@ -220,6 +220,13 @@ export class AccountController {
       event.preventDefault();
       void this.loginFlow.submit();
     });
+    this.otpInput.addEventListener('input', () => {
+      this.otpInput.value = this.otpInput.value.replace(/\D/g, '').slice(0, 6);
+      const loginState = this.loginFlow.getState();
+      if (this.otpInput.value.length === 6 && loginState.stage === 'verify' && !loginState.busy) {
+        void this.loginFlow.submit();
+      }
+    });
     this.otpResendButton.addEventListener('click', () => void this.loginFlow.resend());
     this.otpChangeButton.addEventListener('click', () => this.loginFlow.changeEmail());
     this.authCloseButton.addEventListener('click', () => this.closeAuthDialog());
@@ -396,6 +403,8 @@ export class AccountController {
       ? `重新发送验证码（${state.cooldownSeconds}秒）`
       : '重新发送验证码';
     this.otpChangeButton.disabled = state.busy;
+    this.dialogLoginButton.disabled = state.busy || !this.state.available;
+    this.authCloseButton.disabled = state.busy || !this.state.available;
     this.dialogLoginButton.textContent = verifying ? '验证并登录' : '发送验证码';
     this.authMessage.dataset.state = state.messageState;
     this.authMessage.textContent = state.message;
