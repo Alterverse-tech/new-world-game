@@ -16,6 +16,12 @@ function configResponse() {
   return new Response(JSON.stringify(enabledConfig), { status: 200 });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => { resolve = settle; });
+  return { promise, resolve };
+}
+
 describe('AccountAuthService', () => {
   it('loads config and creates exactly one shared client', async () => {
     const fetchImpl = vi.fn(async () => configResponse());
@@ -85,6 +91,37 @@ describe('AccountAuthService', () => {
     expect(JSON.stringify(service)).not.toContain('private-token');
   });
 
+  it('reuses the same in-flight config promise', async () => {
+    const pendingResponse = deferred<Response>();
+    const fetchImpl = vi.fn(() => pendingResponse.promise);
+    const service = new AccountAuthService({ fetchImpl });
+
+    const first = service.loadConfig();
+    const second = service.loadConfig();
+
+    expect(second).toBe(first);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    pendingResponse.resolve(configResponse());
+    await expect(Promise.all([first, second])).resolves.toEqual([enabledConfig, enabledConfig]);
+  });
+
+  it('reuses the same in-flight client promise', async () => {
+    const pendingClient = deferred<object>();
+    const createClientImpl = vi.fn(() => pendingClient.promise);
+    const service = new AccountAuthService({
+      fetchImpl: vi.fn(async () => configResponse()),
+      createClientImpl: createClientImpl as never,
+    });
+
+    const first = service.getClient();
+    const second = service.getClient();
+
+    expect(second).toBe(first);
+    await vi.waitFor(() => expect(createClientImpl).toHaveBeenCalledOnce());
+    pendingClient.resolve({ auth: {} });
+    await expect(Promise.all([first, second])).resolves.toEqual([{ auth: {} }, { auth: {} }]);
+  });
+
   it('verifies an email token and returns only Supabase returned session', async () => {
     const session = { access_token: 'private-token', user: { id: 'player-id' } };
     const verifyOtp = vi.fn(async () => ({ data: { session }, error: null }));
@@ -149,6 +186,17 @@ describe('AccountAuthService', () => {
       expect(String(error)).not.toContain('session-private-token');
       expect(String(error)).not.toContain('private-token');
     });
+  });
+
+  it('rejects null and primitive successful session responses with a fixed error', async () => {
+    for (const body of ['null', '"unexpected"', '42']) {
+      const service = new AccountAuthService({
+        fetchImpl: vi.fn(async () => new Response(body, { status: 200 })),
+      });
+
+      await expect(service.exchangeSession({ access_token: 'private-token' } as never))
+        .rejects.toThrow('账号验证响应无效');
+    }
   });
 });
 

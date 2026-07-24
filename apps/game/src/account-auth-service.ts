@@ -129,8 +129,8 @@ export class AccountAuthService {
       cache: 'no-store',
     });
     if (!response.ok) throw new Error('账号验证失败，请稍后重试');
-    const payload = await safeJson(response, '账号验证响应无效') as { account?: { signedIn?: boolean } };
-    if (payload.account?.signedIn !== true) throw new Error('账号验证响应无效');
+    const payload = await safeJson(response, '账号验证响应无效');
+    if (!isSignedInAccountResponse(payload)) throw new Error('账号验证响应无效');
   }
 
   private async fetchConfig(): Promise<AuthConfig> {
@@ -165,4 +165,14 @@ async function safeJson(response: Response, message: string): Promise<unknown> {
   } catch {
     throw new Error(message);
   }
+}
+
+function isSignedInAccountResponse(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const account = (value as { account?: unknown }).account;
+  return Boolean(
+    account
+    && typeof account === 'object'
+    && (account as { signedIn?: unknown }).signedIn === true,
+  );
 }
