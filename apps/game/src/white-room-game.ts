@@ -253,8 +253,11 @@ export function quitWhiteRoomGame(actions: {
   exitPointerLock(): void;
   reload(): void;
 }): void {
-  actions.exitPointerLock();
-  actions.reload();
+  try {
+    actions.exitPointerLock();
+  } finally {
+    actions.reload();
+  }
 }
 
 interface AccountProfileStore {

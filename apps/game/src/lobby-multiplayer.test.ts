@@ -40,7 +40,7 @@ describe('lobby nickname labels', () => {
     expect(lobbyNicknameLabelVisible(false)).toBe(true);
   });
 
-  it('keeps self and remote labels visible across actor creation and profile updates', () => {
+  it('keeps the self and remote sprite property enabled across creation and profile updates', () => {
     vi.stubGlobal('document', {
       createElement: () => ({
         width: 0,
@@ -80,16 +80,21 @@ describe('lobby nickname labels', () => {
         self,
       );
       expect(actor.label.visible).toBe(true);
+      if (!self) {
+        expect(actor.group.visible).toBe(true);
+        expect(actor.group.visible && actor.label.visible).toBe(true);
+      }
 
       actor.group.visible = false;
       methods.updateActorProfile.call(multiplayer, actor, { name: 'Renamed', avatarId: '' });
 
       expect(actor.label.visible).toBe(true);
       expect(actor.group.visible).toBe(false);
+      expect(actor.group.visible && actor.label.visible).toBe(false);
     }
   });
 
-  it('keeps self label visibility independent from first-person and camera obstruction group state', () => {
+  it('lets first-person and camera obstruction hide the self label through its actor group', () => {
     const multiplayer = multiplayerHarness();
     multiplayer.selfActor.label.visible = lobbyNicknameLabelVisible(true);
     multiplayer.view = 'third';
@@ -97,20 +102,23 @@ describe('lobby nickname labels', () => {
     LobbyMultiplayer.prototype.setView.call(multiplayer, 'first');
     expect(multiplayer.selfActor.group.visible).toBe(false);
     expect(multiplayer.selfActor.label.visible).toBe(true);
+    expect(multiplayer.selfActor.group.visible && multiplayer.selfActor.label.visible).toBe(false);
 
     multiplayer.cameraObstructed = false;
     LobbyMultiplayer.prototype.setView.call(multiplayer, 'third');
     expect(multiplayer.selfActor.group.visible).toBe(true);
     expect(multiplayer.selfActor.label.visible).toBe(true);
+    expect(multiplayer.selfActor.group.visible && multiplayer.selfActor.label.visible).toBe(true);
 
     multiplayer.cameraObstructed = true;
     LobbyMultiplayer.prototype.setView.call(multiplayer, 'first');
     LobbyMultiplayer.prototype.setView.call(multiplayer, 'third');
     expect(multiplayer.selfActor.group.visible).toBe(false);
     expect(multiplayer.selfActor.label.visible).toBe(true);
+    expect(multiplayer.selfActor.group.visible && multiplayer.selfActor.label.visible).toBe(false);
   });
 
-  it('keeps self and remote labels visible while driving hides their actor groups', () => {
+  it('lets driving hide self and remote labels through their actor groups', () => {
     const multiplayer = multiplayerHarness();
     const remote = actorStub('remote-0001');
     multiplayer.peers.set(remote.id, remote);
@@ -132,6 +140,8 @@ describe('lobby nickname labels', () => {
     expect(remote.group.visible).toBe(false);
     expect(multiplayer.selfActor.label.visible).toBe(true);
     expect(remote.label.visible).toBe(true);
+    expect(multiplayer.selfActor.group.visible && multiplayer.selfActor.label.visible).toBe(false);
+    expect(remote.group.visible && remote.label.visible).toBe(false);
   });
 });
 

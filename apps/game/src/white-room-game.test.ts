@@ -19,24 +19,29 @@ describe('quit game', () => {
     expect(calls).toEqual(['exit-pointer-lock', 'reload']);
   });
 
-  it('does not reload if releasing pointer lock throws', () => {
+  it('reloads after a pointer-lock failure and then propagates the original error', () => {
     const failure = new Error('pointer lock failed');
-    const reload = vi.fn();
+    const calls: string[] = [];
 
     expect(() => quitWhiteRoomGame({
-      exitPointerLock: () => { throw failure; },
-      reload,
+      exitPointerLock: () => {
+        calls.push('exit-pointer-lock');
+        throw failure;
+      },
+      reload: () => calls.push('reload'),
     })).toThrow(failure);
 
-    expect(reload).not.toHaveBeenCalled();
+    expect(calls).toEqual(['exit-pointer-lock', 'reload']);
   });
 
   it('binds the quit button exactly once with the existing pause-menu controls', () => {
     const commonControl = { addEventListener: vi.fn() };
     const quitButton = { addEventListener: vi.fn() };
+    const reload = vi.fn();
     vi.stubGlobal('document', {
       getElementById: (id: string) => id === 'quit-game-btn' ? quitButton : commonControl,
     });
+    vi.stubGlobal('window', { location: { reload } });
     const game = Object.create(WhiteRoomGame.prototype) as Record<string, unknown>;
     Object.assign(game, {
       ui: new Proxy({}, { get: () => commonControl }),
@@ -49,6 +54,9 @@ describe('quit game', () => {
 
     expect(quitButton.addEventListener).toHaveBeenCalledOnce();
     expect(quitButton.addEventListener).toHaveBeenCalledWith('click', expect.any(Function));
+    const click = quitButton.addEventListener.mock.calls[0]?.[1] as () => void;
+    click();
+    expect(reload).toHaveBeenCalledOnce();
   });
 });
 
