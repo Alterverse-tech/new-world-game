@@ -185,6 +185,7 @@ export class AccountRecoveryFlow {
         messageState: 'success',
       });
       await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 650));
+      this.set({ busy: false });
       this.d.onSuccess?.();
     } catch (error) {
       if (!(error instanceof AccountRecoveryRequestError) || error.canRetryPassword) {

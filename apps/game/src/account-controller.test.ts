@@ -103,7 +103,7 @@ class FakeElement extends EventTarget {
   }
 }
 
-function initializedController(authService: object) {
+function initializedController(authService: object, recoveryHash: string | null = null) {
   const element = () => new FakeElement();
   const elements = new Map([
     'account-panel',
@@ -198,7 +198,7 @@ function initializedController(authService: object) {
     removeItem: vi.fn(),
   });
   return {
-    controller: new AccountController(authService as never),
+    controller: new AccountController(authService as never, recoveryHash),
     elements,
     recoverySteps,
     registrationSteps,
@@ -589,6 +589,41 @@ describe('email auth operations', () => {
     expect(recoverySteps[0]!.classList.contains('is-complete')).toBe(true);
     expect(recoverySteps[1]!.classList.contains('is-active')).toBe(true);
     expect(recoverySteps[1]!.classList.contains('is-complete')).toBe(false);
+  });
+
+  it('returns a successful password recovery to login after 650ms', async () => {
+    vi.useFakeTimers();
+    try {
+      const updateRecoveredPassword = vi.fn(async () => {});
+      const { controller, elements } = initializedController(
+        { updateRecoveredPassword },
+        '#access_token=recovery-secret&type=recovery',
+      );
+      enableAccountUi(controller);
+      elements.get('account-reset-email')!.value = 'player@example.com';
+      elements.get('account-reset-password')!.value = 'new-password';
+      elements.get('account-reset-password-confirm')!.value = 'new-password';
+      elements.get('account-reset-form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(updateRecoveredPassword).toHaveBeenCalledWith('recovery-secret', 'new-password');
+      expect(elements.get('account-reset-password')!.value).toBe('');
+      expect(elements.get('account-reset-password-confirm')!.value).toBe('');
+      expect(elements.get('account-reset-dialog')!.open).toBe(true);
+      expect(elements.get('account-auth-dialog')!.open).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(649);
+      expect(elements.get('account-reset-dialog')!.open).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(elements.get('account-reset-dialog')!.open).toBe(false);
+      expect(elements.get('account-auth-dialog')!.open).toBe(true);
+      expect(elements.get('account-email-input')!.value).toBe('player@example.com');
+      expect(elements.get('account-auth-message')!.textContent).toBe('密码已更新，请使用新密码登录。');
+      expect(elements.get('account-auth-message')!.dataset.state).toBe('success');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('prefills reset email through bubbling open and visibly ticks registration resend', async () => {
