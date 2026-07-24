@@ -72,6 +72,52 @@ function sessionActions(controller: AccountController): {
   };
 }
 
+function initializedController(authService: object): AccountController {
+  const element = () => ({
+    dataset: {},
+    textContent: '',
+    value: '',
+    disabled: false,
+    open: false,
+    classList: { toggle: vi.fn() },
+    addEventListener: vi.fn(),
+    focus: vi.fn(),
+    showModal: vi.fn(),
+    close: vi.fn(),
+  });
+  const elements = new Map([
+    'account-panel',
+    'account-user-name',
+    'account-status',
+    'account-login-open-btn',
+    'account-signout-btn',
+    'settings-account',
+    'settings-account-status',
+    'settings-account-action',
+    'account-auth-dialog',
+    'account-auth-form',
+    'account-email-input',
+    'account-password-input',
+    'account-login-btn',
+    'account-register-btn',
+    'account-auth-close',
+    'account-auth-message',
+    'start-btn',
+    'lobby-asset-account-note',
+  ].map((id) => [id, element()]));
+  vi.stubGlobal('document', { getElementById: (id: string) => elements.get(id) ?? null });
+  vi.stubGlobal('window', {
+    location: { href: 'https://altverse.fun/' },
+    history: { replaceState: vi.fn() },
+    setTimeout: vi.fn(),
+    requestAnimationFrame: vi.fn(),
+  });
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+    account: { signedIn: false },
+  }), { status: 200 })));
+  return new AccountController(authService as never);
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -180,6 +226,37 @@ describe('account display name', () => {
 });
 
 describe('email auth operations', () => {
+  it('initializes through the injected auth service', async () => {
+    const client = {
+      auth: {
+        onAuthStateChange: vi.fn(),
+        getSession: vi.fn(async () => ({ data: { session: null }, error: null })),
+      },
+    };
+    const loadConfig = vi.fn(async () => ({
+      enabled: true as const,
+      provider: 'email' as const,
+      supabaseUrl: 'https://project-ref.supabase.co',
+      publishableKey: 'sb_publishable_example',
+    }));
+    const getClient = vi.fn(async () => client);
+    const controller = initializedController({ loadConfig, getClient });
+
+    await controller.initialize();
+
+    expect(loadConfig).toHaveBeenCalledOnce();
+    expect(getClient).toHaveBeenCalledOnce();
+    expect(client.auth.onAuthStateChange).toHaveBeenCalledOnce();
+    expect(client.auth.getSession).toHaveBeenCalledOnce();
+    expect(controller.getTextState()).toMatchObject({
+      ready: true,
+      available: true,
+      mode: 'guest',
+      phase: 'guest',
+    });
+    expect(fetch).not.toHaveBeenCalledWith('/api/auth/config', expect.anything());
+  });
+
   it('delegates password-login session exchange to the injected auth service', async () => {
     const session = {
       access_token: 'private-access-token',

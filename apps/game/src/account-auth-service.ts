@@ -34,8 +34,10 @@ export function parseAuthConfig(value: unknown): AuthConfig {
   if (record.enabled === false) return { enabled: false, provider: 'email' };
   if (record.enabled !== true) throw new Error('账号配置响应无效');
   const supabaseUrl = safeString(record.supabaseUrl, 2048);
-  const publishableKey = safeString(record.publishableKey, 4096);
-  if (!supabaseUrl || !publishableKey || /\s/.test(publishableKey)) throw new Error('账号公开配置无效');
+  const publishableKey = safeString(record.publishableKey, 512);
+  if (!supabaseUrl || !publishableKey || !/^[A-Za-z0-9._-]{16,512}$/u.test(publishableKey)) {
+    throw new Error('账号公开配置无效');
+  }
   let parsed: URL;
   try {
     parsed = new URL(supabaseUrl);
@@ -48,8 +50,9 @@ export function parseAuthConfig(value: unknown): AuthConfig {
     || parsed.password
     || parsed.search
     || parsed.hash
+    || parsed.port
     || (parsed.pathname !== '/' && parsed.pathname !== '')
-    || !parsed.hostname.endsWith('.supabase.co')
+    || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.supabase\.co$/u.test(parsed.hostname)
   ) {
     throw new Error('账号服务地址无效');
   }
@@ -126,19 +129,20 @@ export class AccountAuthService {
       cache: 'no-store',
     });
     if (!response.ok) throw new Error('账号验证失败，请稍后重试');
-    const payload = await response.json() as { account?: { signedIn?: boolean } };
+    const payload = await safeJson(response, '账号验证响应无效') as { account?: { signedIn?: boolean } };
     if (payload.account?.signedIn !== true) throw new Error('账号验证响应无效');
   }
 
   private async fetchConfig(): Promise<AuthConfig> {
     const response = await this.fetchImpl('/api/auth/config', {
+      method: 'GET',
       headers: { Accept: 'application/json' },
       credentials: 'same-origin',
       cache: 'no-store',
       signal: AbortSignal.timeout(6_000),
     });
     if (!response.ok) throw new Error(`账号配置 HTTP ${response.status}`);
-    return parseAuthConfig(await response.json());
+    return parseAuthConfig(await safeJson(response, '账号配置响应无效'));
   }
 
   private async createSharedClient(): Promise<SupabaseClient> {
@@ -152,5 +156,13 @@ export class AccountAuthService {
         persistSession: true,
       },
     });
+  }
+}
+
+async function safeJson(response: Response, message: string): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(message);
   }
 }

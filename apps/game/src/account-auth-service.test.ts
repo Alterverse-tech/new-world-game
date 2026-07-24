@@ -5,14 +5,20 @@ import {
   parseAuthConfig,
 } from './account-auth-service';
 
+const enabledConfig = {
+  enabled: true,
+  provider: 'email',
+  supabaseUrl: 'https://project-ref.supabase.co',
+  publishableKey: 'sb_publishable_example',
+} as const;
+
+function configResponse() {
+  return new Response(JSON.stringify(enabledConfig), { status: 200 });
+}
+
 describe('AccountAuthService', () => {
   it('loads config and creates exactly one shared client', async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
-      enabled: true,
-      provider: 'email',
-      supabaseUrl: 'https://project-ref.supabase.co',
-      publishableKey: 'sb_publishable_example',
-    }), { status: 200 }));
+    const fetchImpl = vi.fn(async () => configResponse());
     const client = { auth: {} };
     const createClientImpl = vi.fn(() => client);
     const service = new AccountAuthService({ fetchImpl, createClientImpl: createClientImpl as never });
@@ -21,17 +27,31 @@ describe('AccountAuthService', () => {
     expect(await service.getClient()).toBe(client);
     expect(fetchImpl).toHaveBeenCalledOnce();
     expect(createClientImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl).toHaveBeenCalledWith('/api/auth/config', expect.objectContaining({
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      signal: expect.any(AbortSignal),
+    }));
+    expect(createClientImpl).toHaveBeenCalledWith(
+      enabledConfig.supabaseUrl,
+      enabledConfig.publishableKey,
+      {
+        auth: {
+          flowType: 'pkce',
+          detectSessionInUrl: true,
+          autoRefreshToken: true,
+          persistSession: true,
+        },
+      },
+    );
   });
 
   it('sends OTP with account creation and exchanges only the returned session', async () => {
     const signInWithOtp = vi.fn(async () => ({ error: null }));
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        enabled: true,
-        provider: 'email',
-        supabaseUrl: 'https://project-ref.supabase.co',
-        publishableKey: 'sb_publishable_example',
-      }), { status: 200 }))
+      .mockResolvedValueOnce(configResponse())
       .mockResolvedValueOnce(new Response(JSON.stringify({
         account: { signedIn: true },
       }), { status: 200 }));
@@ -52,12 +72,83 @@ describe('AccountAuthService', () => {
     });
     expect(fetchImpl.mock.calls[1]).toEqual([
       '/api/auth/session',
-      expect.objectContaining({
+      {
         method: 'POST',
-        headers: expect.objectContaining({ Authorization: 'Bearer private-token' }),
-      }),
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer private-token',
+        },
+        credentials: 'same-origin',
+        cache: 'no-store',
+      },
     ]);
     expect(JSON.stringify(service)).not.toContain('private-token');
+  });
+
+  it('verifies an email token and returns only Supabase returned session', async () => {
+    const session = { access_token: 'private-token', user: { id: 'player-id' } };
+    const verifyOtp = vi.fn(async () => ({ data: { session }, error: null }));
+    const service = new AccountAuthService({
+      fetchImpl: vi.fn(async () => configResponse()),
+      createClientImpl: () => ({ auth: { verifyOtp } }) as never,
+    });
+
+    await expect(service.verifyOtp('player@example.com', '123456')).resolves.toBe(session as never);
+    expect(verifyOtp).toHaveBeenCalledWith({
+      email: 'player@example.com',
+      token: '123456',
+      type: 'email',
+    });
+  });
+
+  it('retries configuration loading after a failed request', async () => {
+    const fetchImpl = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce(configResponse());
+    const service = new AccountAuthService({ fetchImpl });
+
+    await expect(service.loadConfig()).rejects.toThrow('temporary failure');
+    await expect(service.loadConfig()).resolves.toEqual(enabledConfig);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries client creation after a client factory failure', async () => {
+    const client = { auth: {} };
+    const createClientImpl = vi.fn()
+      .mockImplementationOnce(() => { throw new Error('client creation failed'); })
+      .mockReturnValueOnce(client);
+    const service = new AccountAuthService({
+      fetchImpl: vi.fn(async () => configResponse()),
+      createClientImpl: createClientImpl as never,
+    });
+
+    await expect(service.getClient()).rejects.toThrow('client creation failed');
+    await expect(service.getClient()).resolves.toBe(client);
+    expect(createClientImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('redacts malformed config response bodies', async () => {
+    const service = new AccountAuthService({
+      fetchImpl: vi.fn(async () => new Response('config-private-token', { status: 200 })),
+    });
+
+    await expect(service.loadConfig()).rejects.toThrow('账号配置响应无效');
+    await service.loadConfig().catch((error: unknown) => {
+      expect(String(error)).not.toContain('config-private-token');
+    });
+  });
+
+  it('redacts malformed session exchange response bodies', async () => {
+    const service = new AccountAuthService({
+      fetchImpl: vi.fn(async () => new Response('session-private-token', { status: 200 })),
+    });
+
+    await expect(service.exchangeSession({ access_token: 'private-token' } as never))
+      .rejects.toThrow('账号验证响应无效');
+    await service.exchangeSession({ access_token: 'private-token' } as never).catch((error: unknown) => {
+      expect(String(error)).not.toContain('session-private-token');
+      expect(String(error)).not.toContain('private-token');
+    });
   });
 });
 
@@ -77,5 +168,25 @@ describe('auth contract helpers', () => {
       supabaseUrl: 'https://not-supabase.example',
       publishableKey: 'sb_publishable_example',
     })).toThrow('账号服务地址无效');
+  });
+
+  it('rejects invalid publishable keys and non-project Supabase URLs', () => {
+    const invalidKeys = [
+      'short-key',
+      'a'.repeat(513),
+      'sb_publishable+invalid',
+    ];
+    for (const publishableKey of invalidKeys) {
+      expect(() => parseAuthConfig({ ...enabledConfig, publishableKey }))
+        .toThrow('账号公开配置无效');
+    }
+    for (const supabaseUrl of [
+      'https://project-ref.supabase.co:8443',
+      'https://nested.project-ref.supabase.co',
+      'https://.supabase.co',
+    ]) {
+      expect(() => parseAuthConfig({ ...enabledConfig, supabaseUrl }))
+        .toThrow('账号服务地址无效');
+    }
   });
 });
