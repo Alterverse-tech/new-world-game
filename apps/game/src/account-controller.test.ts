@@ -61,22 +61,40 @@ function sessionActions(controller: AccountController): {
   };
 }
 
+class FakeElement extends EventTarget {
+  public readonly listenerCalls: Array<{ type: string; options: boolean | AddEventListenerOptions | undefined }> = [];
+  public readonly dataset: Record<string, string> = {};
+  public readonly classList = { toggle: vi.fn() };
+  public textContent = '';
+  public value = '';
+  public disabled = false;
+  public open = false;
+  public hidden = false;
+  public readonly focus = vi.fn();
+  public readonly showModal = vi.fn(() => { this.open = true; });
+  public readonly close = vi.fn(() => { this.open = false; });
+
+  public override addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: boolean | AddEventListenerOptions,
+  ): void {
+    this.listenerCalls.push({ type, options });
+    super.addEventListener(type, listener, options);
+  }
+
+  public closest(): FakeElement {
+    return this;
+  }
+
+  public toggleAttribute(_name: string, force?: boolean): boolean {
+    this.hidden = force ?? true;
+    return this.hidden;
+  }
+}
+
 function initializedController(authService: object) {
-  const listeners = new Map<string, EventListener>();
-  const element = (id: string) => ({
-    dataset: {},
-    textContent: '',
-    value: '',
-    disabled: false,
-    open: false,
-    hidden: false,
-    classList: { toggle: vi.fn() },
-    addEventListener: vi.fn((type: string, listener: EventListener) => listeners.set(`${id}:${type}`, listener)),
-    focus: vi.fn(),
-    showModal: vi.fn(),
-    close: vi.fn(),
-    closest: vi.fn(() => ({ toggleAttribute: vi.fn() })),
-  });
+  const element = () => new FakeElement();
   const elements = new Map([
     'account-panel',
     'account-user-name',
@@ -100,12 +118,22 @@ function initializedController(authService: object) {
     'account-auth-message',
     'start-btn',
     'lobby-asset-account-note',
-  ].map((id) => [id, element(id)]));
+    'lobby-channel-input',
+  ].map((id) => [id, element()]));
+  const timeouts: Array<{ id: number; callback: () => void; delay: number }> = [];
   vi.stubGlobal('document', { getElementById: (id: string) => elements.get(id) ?? null });
   vi.stubGlobal('window', {
     location: { href: 'https://altverse.fun/', origin: 'https://altverse.fun', reload: vi.fn() },
     history: { replaceState: vi.fn() },
-    setTimeout: vi.fn(),
+    setTimeout: vi.fn((callback: () => void, delay: number) => {
+      const id = timeouts.length + 1;
+      timeouts.push({ id, callback, delay });
+      return id;
+    }),
+    clearTimeout: vi.fn((id: number) => {
+      const index = timeouts.findIndex((timeout) => timeout.id === id);
+      if (index >= 0) timeouts.splice(index, 1);
+    }),
     requestAnimationFrame: vi.fn(),
   });
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
@@ -116,10 +144,11 @@ function initializedController(authService: object) {
     setItem: vi.fn(),
     removeItem: vi.fn(),
   });
-  return { controller: new AccountController(authService as never), elements, listeners };
+  return { controller: new AccountController(authService as never), elements, timeouts };
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -270,31 +299,86 @@ describe('email auth operations', () => {
     expect(JSON.stringify(controller.getTextState())).not.toContain('private-access-token');
   });
 
-  it('wires form submission to the source-owned OTP login flow', async () => {
+  it('uses bubbling form and button events and unlocks resend when the cooldown expires', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0);
     const session = { access_token: 'private-access-token', user: user({ email: 'player@example.com' }) } as Session;
     const sendOtp = vi.fn(async () => {});
     const verifyOtp = vi.fn(async () => session);
     const exchangeSession = vi.fn(async () => {});
-    const { elements, listeners } = initializedController({ sendOtp, verifyOtp, exchangeSession });
+    const { elements, timeouts } = initializedController({ sendOtp, verifyOtp, exchangeSession });
     const email = elements.get('account-email-input')!;
     email.value = ' Player@Example.COM ';
-    const submit = listeners.get('account-auth-form:submit')!;
-    const preventDefault = vi.fn();
+    const form = elements.get('account-auth-form')!;
+    const submit = new Event('submit', { cancelable: true });
 
-    submit({ preventDefault } as unknown as Event);
+    expect(form.dispatchEvent(submit)).toBe(false);
     await vi.waitFor(() => expect(sendOtp).toHaveBeenCalledWith('player@example.com', 'https://altverse.fun/'));
 
-    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(submit.defaultPrevented).toBe(true);
+    expect(form.listenerCalls).toContainEqual({ type: 'submit', options: undefined });
     expect(elements.get('account-login-otp-panel')!.hidden).toBe(false);
     expect(elements.get('account-login-otp-email')!.textContent).toBe('player@example.com');
     const token = elements.get('account-login-otp-input')!;
     token.value = '123456';
-    const loginClick = listeners.get('account-login-btn:click')!;
-    loginClick({ preventDefault } as unknown as Event);
+    const loginButton = elements.get('account-login-btn')!;
+    const loginClick = new Event('click', { cancelable: true });
+    expect(loginButton.dispatchEvent(loginClick)).toBe(false);
     await vi.waitFor(() => expect(verifyOtp).toHaveBeenCalledWith('player@example.com', '123456'));
     await vi.waitFor(() => expect(exchangeSession).toHaveBeenCalledWith(session));
     await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalledOnce());
-    expect(elements.get('account-register-btn')!.addEventListener).not.toHaveBeenCalled();
+    expect(loginClick.defaultPrevented).toBe(true);
+    expect(loginButton.listenerCalls).toContainEqual({ type: 'click', options: undefined });
+    expect(elements.get('account-register-btn')!.listenerCalls).toEqual([]);
+
+    elements.get('account-login-otp-change')!.dispatchEvent(new Event('click'));
+    email.value = 'player@example.com';
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(sendOtp).toHaveBeenCalledTimes(2));
+    expect(timeouts).toHaveLength(1);
+    now.mockReturnValue(60_000);
+    timeouts[0]!.callback();
+    expect(elements.get('account-login-otp-resend')!.disabled).toBe(false);
+    expect(elements.get('account-login-otp-resend')!.textContent).toBe('重新发送验证码');
+  });
+
+  it('remembers a valid lobby channel before reloading after OTP verification', async () => {
+    const session = { access_token: 'private-access-token', user: user({ email: 'player@example.com' }) } as Session;
+    const sendOtp = vi.fn(async () => {});
+    const verifyOtp = vi.fn(async () => session);
+    const exchangeSession = vi.fn(async () => {});
+    const { elements } = initializedController({ sendOtp, verifyOtp, exchangeSession });
+    elements.get('lobby-channel-input')!.value = '778899';
+    elements.get('account-email-input')!.value = 'player@example.com';
+    elements.get('account-auth-form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(sendOtp).toHaveBeenCalledOnce());
+    elements.get('account-login-otp-input')!.value = '123456';
+    elements.get('account-login-btn')!.dispatchEvent(new Event('click', { cancelable: true }));
+
+    await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalledOnce());
+    expect(sessionStorage.setItem).toHaveBeenCalledWith('whiteroom.auth.return-channel', '778899');
+  });
+
+  it('signs out locally after clearing the server session and redacts provider errors', async () => {
+    const reload = vi.fn();
+    const signOut = vi.fn(async () => ({ error: null }));
+    const logout = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('window', { location: { reload } });
+    vi.stubGlobal('fetch', logout);
+    const controller = bareController({ mode: 'email', client: { auth: { signOut } } });
+
+    await (controller as unknown as { signOut(): Promise<void> }).signOut();
+
+    expect(logout).toHaveBeenCalledWith('/api/auth/logout', {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' },
+    });
+    expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
+    expect(reload).toHaveBeenCalledOnce();
+
+    const failing = bareController({
+      mode: 'email', client: { auth: { signOut: vi.fn(async () => ({ error: new Error('provider secret') })) } },
+    });
+    await (failing as unknown as { signOut(): Promise<void> }).signOut();
+    expect((failing as unknown as { state: { message: string } }).state.message).not.toContain('provider secret');
   });
 });
 

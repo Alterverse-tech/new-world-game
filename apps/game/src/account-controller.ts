@@ -126,6 +126,15 @@ function cleanAuthParameters(): void {
   if (changed) window.history.replaceState(null, '', url);
 }
 
+function rememberChannel(): void {
+  try {
+    const channel = byId<HTMLInputElement>('lobby-channel-input').value.trim();
+    if (/^\d{4,12}$/.test(channel)) sessionStorage.setItem(AUTH_RETURN_CHANNEL_KEY, channel);
+  } catch {
+    // Storage can be unavailable in hardened/private browser modes.
+  }
+}
+
 function restoreChannel(): void {
   try {
     const channel = sessionStorage.getItem(AUTH_RETURN_CHANNEL_KEY);
@@ -170,6 +179,7 @@ export class AccountController {
   private client: SupabaseClient | null = null;
   private currentUser: User | null = null;
   private profileRow: ProfileRow | null = null;
+  private cooldownTimer: number | null = null;
   private lastSyncedAccessToken: string | null = null;
   private syncQueue: Promise<void> = Promise.resolve();
   private state: AccountState = {
@@ -191,7 +201,10 @@ export class AccountController {
       storage: browserStoragePort(sessionStorage),
       now: Date.now,
       redirectTo: authRedirectUrl(window.location),
-      reload: () => window.location.reload(),
+      reload: () => {
+        rememberChannel();
+        window.location.reload();
+      },
     });
     this.loginOpenButton.addEventListener('click', () => this.openAuthDialog());
     this.signoutButton.addEventListener('click', () => void this.signOut());
@@ -386,6 +399,20 @@ export class AccountController {
     this.dialogLoginButton.textContent = verifying ? '验证并登录' : '发送验证码';
     this.authMessage.dataset.state = state.messageState;
     this.authMessage.textContent = state.message;
+    this.scheduleCooldownUpdate(state.cooldownSeconds);
+  }
+
+  private scheduleCooldownUpdate(cooldownSeconds: number): void {
+    if (cooldownSeconds <= 0) {
+      if (this.cooldownTimer !== null) window.clearTimeout(this.cooldownTimer);
+      this.cooldownTimer = null;
+      return;
+    }
+    if (this.cooldownTimer !== null) return;
+    this.cooldownTimer = window.setTimeout(() => {
+      this.cooldownTimer = null;
+      this.loginFlow.updateCooldown();
+    }, 1_000);
   }
 
   private async signOut(): Promise<void> {
@@ -402,9 +429,8 @@ export class AccountController {
       const { error } = await this.client.auth.signOut({ scope: 'local' });
       if (error) throw error;
       window.location.reload();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '未知错误';
-      this.setState({ phase: 'error', message: `退出失败，请重试 · ${message}` });
+    } catch {
+      this.setState({ phase: 'error', message: '退出失败，请稍后重试' });
     }
   }
 

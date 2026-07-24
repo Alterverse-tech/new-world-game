@@ -23,9 +23,9 @@ export interface AccountLoginState {
 }
 
 export interface StoragePort {
-  get(key: string): string | null;
-  set(key: string, value: string): void;
-  delete(key: string): void;
+  get(key: string): string | undefined;
+  set(key: string, value: string): unknown;
+  delete(key: string): unknown;
 }
 
 export interface LoginService {
@@ -40,7 +40,7 @@ export const SIX_DIGITS = /^\d{6}$/u;
 
 export function browserStoragePort(storage: Storage): StoragePort {
   return {
-    get: (key) => storage.getItem(key),
+    get: (key) => storage.getItem(key) ?? undefined,
     set: (key, value) => storage.setItem(key, value),
     delete: (key) => storage.removeItem(key),
   };
@@ -76,25 +76,18 @@ export class AccountLoginFlow {
     this.render();
   }
 
-  public getState(): AccountLoginState {
+  public getState(): Readonly<AccountLoginState> {
     return { ...this.state };
   }
 
   public open(): void {
-    this.updateCooldown();
-    this.render();
-    if (this.state.stage === 'verify') this.dependencies.port.focusToken();
-    else this.dependencies.port.focusEmail();
+    if (this.state.busy) return;
+    this.resetToEmail();
   }
 
   public changeEmail(): void {
-    this.setState({
-      stage: 'email',
-      cooldownSeconds: 0,
-      message: EMAIL_PROMPT,
-      messageState: 'guest',
-    });
-    this.dependencies.port.focusEmail();
+    if (this.state.busy) return;
+    this.resetToEmail();
   }
 
   public async resend(): Promise<void> {
@@ -166,6 +159,15 @@ export class AccountLoginFlow {
     } finally {
       this.setState({ busy: false });
     }
+  }
+
+  private resetToEmail(): void {
+    this.dependencies.port.clearToken();
+    this.setState({
+      stage: 'email', busy: false, email: '', cooldownSeconds: 0,
+      message: EMAIL_PROMPT, messageState: 'guest',
+    });
+    this.dependencies.port.focusEmail();
   }
 
   private async verify(token: string): Promise<void> {
