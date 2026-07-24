@@ -3,6 +3,7 @@ import {
   type Session,
   type SupabaseClient,
 } from '@supabase/supabase-js';
+import { AccountRecoveryRequestError } from './account-recovery-flow';
 
 export interface EnabledAuthConfig {
   enabled: true;
@@ -144,13 +145,13 @@ export class AccountAuthService {
     const endpoint = new URL('/auth/v1/recover', config.supabaseUrl);
     endpoint.searchParams.set('redirect_to', redirectTo);
     const response = await this.fetchImpl(endpoint, { method: 'POST', headers: this.recoveryHeaders(config.publishableKey), body: JSON.stringify({ email }), credentials: 'omit', cache: 'no-store' });
-    if (!response.ok) throw new Error(await safeRecoveryError(response, '重置邮件发送失败，请稍后重试。'));
+    if (!response.ok) throw await safeRecoveryError(response, '重置邮件发送失败，请稍后重试。');
   }
 
   public async updateRecoveredPassword(accessToken: string, password: string): Promise<void> {
     const config = await this.loadEnabledConfig();
     const response = await this.fetchImpl(new URL('/auth/v1/user', config.supabaseUrl), { method: 'PUT', headers: this.recoveryHeaders(config.publishableKey, accessToken), body: JSON.stringify({ password }), credentials: 'omit', cache: 'no-store' });
-    if (!response.ok) throw new Error(await safeRecoveryError(response, '密码更新失败，重置链接可能已过期。'));
+    if (!response.ok) throw await safeRecoveryError(response, '密码更新失败，重置链接可能已过期。');
   }
 
   private async loadEnabledConfig(): Promise<EnabledAuthConfig> { const config = await this.loadConfig(); if (!config.enabled) throw new Error('账号登录功能未启用'); return config; }
@@ -182,12 +183,13 @@ export class AccountAuthService {
   }
 }
 
-async function safeRecoveryError(response: Response, fallback: string): Promise<string> {
+async function safeRecoveryError(response: Response, fallback: string): Promise<AccountRecoveryRequestError> {
   try {
     const body = await response.json() as { error_code?: unknown; code?: unknown };
     const code = typeof body.error_code === 'string' ? body.error_code : typeof body.code === 'string' ? body.code : '';
-    return ({ email_address_invalid: '邮箱地址无效，请检查后重试。', over_email_send_rate_limit: '重置邮件发送过于频繁，请稍后再试。', over_request_rate_limit: '请求过于频繁，请稍后再试。', weak_password: '新密码强度不足，请使用至少 8 位密码。', same_password: '新密码不能与当前密码相同。' } as Record<string, string>)[code] ?? fallback;
-  } catch { return fallback; }
+    const messages: Record<string, string> = { email_address_invalid: '邮箱地址无效，请检查后重试。', over_email_send_rate_limit: '重置邮件发送过于频繁，请稍后再试。', over_request_rate_limit: '请求过于频繁，请稍后再试。', weak_password: '新密码强度不足，请使用至少 8 位密码。', same_password: '新密码不能与当前密码相同。' };
+    return new AccountRecoveryRequestError(messages[code] ?? fallback, code === 'weak_password' || code === 'same_password');
+  } catch { return new AccountRecoveryRequestError(fallback, false); }
 }
 
 async function safeJson(response: Response, message: string): Promise<unknown> {

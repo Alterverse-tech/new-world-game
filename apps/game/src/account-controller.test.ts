@@ -121,6 +121,7 @@ function initializedController(authService: object) {
     'account-register-password',
     'account-register-password-confirm',
     'account-register-code',
+    'account-register-code-email',
     'account-register-details',
     'account-register-verify',
     'account-register-message',

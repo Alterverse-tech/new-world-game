@@ -6,6 +6,7 @@ function makePort(values = { email: ' new@example.com ', password: 'register-pas
   const port: AccountRegistrationPort & { values: typeof values; states: unknown[] } = {
     values, states: [], readEmail: () => values.email, readPassword: () => values.password,
     readConfirmation: () => values.confirmation, readToken: () => values.token,
+    setEmail: vi.fn((email: string) => { values.email = email; }),
     clearSecrets: vi.fn(() => { values.password = values.confirmation = values.token = ''; }),
     render: vi.fn((state) => port.states.push(state)), focusEmail: vi.fn(), focusPassword: vi.fn(), focusConfirmation: vi.fn(), focusToken: vi.fn(),
   };
@@ -37,5 +38,13 @@ describe('AccountRegistrationFlow', () => {
     flow.cancel();
     expect(port.clearSecrets).toHaveBeenCalled();
     expect(flow.getState()).toMatchObject({ stage: 'details', email: '' });
+  });
+
+  it('writes normalized prefills and focuses password when reopening registration', () => {
+    const ui = makePort();
+    const flow = new AccountRegistrationFlow({ port: ui, service: { sendOtp: vi.fn(), verifyOtp: vi.fn(), setPassword: vi.fn(), exchangeSession: vi.fn() }, storage: { get: vi.fn(), set: vi.fn(), delete: vi.fn() }, now: Date.now, redirectTo: 'https://altverse.fun/', reload: vi.fn() });
+    flow.open(' Player@Example.COM ');
+    expect(ui.setEmail).toHaveBeenCalledWith('player@example.com');
+    expect(ui.focusPassword).toHaveBeenCalled();
   });
 });

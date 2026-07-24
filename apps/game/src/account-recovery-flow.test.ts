@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AccountRecoveryFlow, captureRecoveryHash, type AccountRecoveryPort } from './account-recovery-flow';
 
 function makePort(values = { email: ' player@example.com ', password: 'new-password', confirmation: 'new-password' }) {
-  const port: AccountRecoveryPort & { values: typeof values; states: unknown[] } = { values, states: [], readEmail: () => values.email, readPassword: () => values.password, readConfirmation: () => values.confirmation, clearSecrets: vi.fn(() => { values.password = values.confirmation = ''; }), render: vi.fn((state) => port.states.push(state)), focusEmail: vi.fn(), focusPassword: vi.fn(), focusConfirmation: vi.fn() };
+  const port: AccountRecoveryPort & { values: typeof values; states: unknown[] } = { values, states: [], readEmail: () => values.email, readPassword: () => values.password, readConfirmation: () => values.confirmation, setEmail: vi.fn((email: string) => { values.email = email; }), clearSecrets: vi.fn(() => { values.password = values.confirmation = ''; }), render: vi.fn((state) => port.states.push(state)), focusEmail: vi.fn(), focusPassword: vi.fn(), focusConfirmation: vi.fn() };
   return port;
 }
 
@@ -20,6 +20,13 @@ describe('captureRecoveryHash', () => {
 });
 
 describe('AccountRecoveryFlow', () => {
+  it('resets a reopened dialog to normalized email mode', () => {
+    const port = makePort(); const flow = new AccountRecoveryFlow({ port, service: { sendRecoveryEmail: vi.fn(), updateRecoveredPassword: vi.fn() } });
+    flow.openRecovery('#access_token=recovery-secret&type=recovery');
+    flow.open(' Player@Example.COM ');
+    expect(port.setEmail).toHaveBeenCalledWith('player@example.com');
+    expect(flow.getState()).toMatchObject({ mode: 'email', busy: false, messageState: 'guest' });
+  });
   it('uses enumeration-safe mail feedback and keeps token/password private', async () => {
     const port = makePort(); const service = { sendRecoveryEmail: vi.fn(async () => {}), updateRecoveredPassword: vi.fn(async () => {}) };
     const flow = new AccountRecoveryFlow({ port, service });
