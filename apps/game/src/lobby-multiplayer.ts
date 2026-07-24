@@ -763,9 +763,11 @@ export function parseLobbyMultiplayerMessage(value: unknown): MultiplayerMessage
   }
   if (record.type === 'telemetry_pong') {
     if (
-      !exactKeys(record, new Set(['type', 'nonce']))
+      !exactKeys(record, new Set(['type', 'nonce', 'serverTime']))
       || !Number.isSafeInteger(record.nonce)
       || (record.nonce as number) < 1
+      || typeof record.serverTime !== 'number'
+      || !Number.isFinite(record.serverTime)
     ) return null;
     return { type: 'telemetry_pong', nonce: record.nonce as number };
   }
@@ -1332,6 +1334,7 @@ export class LobbyMultiplayer {
     const message = serializeVehicleRecoverMessage(objectId, leaseId);
     if (!message) return false;
     this.socket!.send(JSON.stringify(message));
+    this.telemetry.setLocalActivity(this.channelTelemetryActivity());
     return true;
   }
 
@@ -1575,6 +1578,10 @@ export class LobbyMultiplayer {
     return 'online';
   }
 
+  private channelTelemetryActivity(): PlayerActivity {
+    return this.channel.startsWith('level:') ? 'playing' : 'online';
+  }
+
   private handleVisibilityChange(): void {
     this.telemetry.setLocalActivity(document.hidden ? 'away' : this.currentTelemetryActivity());
   }
@@ -1749,7 +1756,10 @@ export class LobbyMultiplayer {
       if (message.player.id !== this.selfId && message.player.id !== this.clientId) this.upsertPeer(message.player, true);
       this.serverOnline = message.online;
     } else if (message.type === 'pose') {
-      this.telemetry.updateActivity(message.player.id, message.player.moving ? 'moving' : 'online');
+      this.telemetry.updateActivity(
+        message.player.id,
+        message.player.moving ? 'moving' : this.channelTelemetryActivity(),
+      );
       if (message.player.id !== this.selfId && message.player.id !== this.clientId) this.upsertPeer(message.player, false);
     } else if (message.type === 'profile') {
       this.telemetry.updateProfile(message.id, message.name);
@@ -1790,6 +1800,7 @@ export class LobbyMultiplayer {
         || message.driverId === this.clientId
         || this.localVehicleLease?.objectId === message.vehicle.objectId
       ) this.localVehicleLease = null;
+      this.telemetry.updateActivity(message.driverId, this.channelTelemetryActivity());
       this.upsertVehicle(message.vehicle, true);
       this.onVehicleEvent?.({
         type: 'recovery',
@@ -1805,7 +1816,7 @@ export class LobbyMultiplayer {
       ) this.localVehicleLease = null;
       this.telemetry.updateActivity(
         message.driverId,
-        this.channel.startsWith('level:') ? 'playing' : 'online',
+        this.channelTelemetryActivity(),
       );
       this.upsertVehicle(message.vehicle, true);
       this.onVehicleEvent?.({
@@ -1955,6 +1966,7 @@ export class LobbyMultiplayer {
     this.vehicles.clear();
     const driverId = localVehicle?.driverId;
     if (driverId) {
+      this.telemetry.updateActivity(driverId, this.channelTelemetryActivity());
       const recovering = { ...localVehicle, recovering: true as const };
       this.vehicles.set(recovering.objectId, recovering);
       this.syncVehicleOccupants();

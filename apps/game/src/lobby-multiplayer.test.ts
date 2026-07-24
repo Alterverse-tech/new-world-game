@@ -295,6 +295,7 @@ describe('lobby multiplayer protocol', () => {
     expect(parseLobbyMultiplayerMessage({
       type: 'telemetry_pong',
       nonce: 7,
+      serverTime: 1_750_000_000_000,
     })).toEqual({ type: 'telemetry_pong', nonce: 7 });
     expect(parseLobbyMultiplayerMessage({
       type: 'telemetry',
@@ -318,15 +319,27 @@ describe('lobby multiplayer protocol', () => {
     expect(parseLobbyMultiplayerMessage({
       type: 'telemetry_pong',
       nonce: Number.POSITIVE_INFINITY,
+      serverTime: 1_750_000_000_000,
     })).toBeNull();
     expect(parseLobbyMultiplayerMessage({
       type: 'telemetry_pong',
       nonce: 0,
+      serverTime: 1_750_000_000_000,
     })).toBeNull();
     expect(parseLobbyMultiplayerMessage({
       type: 'telemetry_pong',
       nonce: 7,
+      serverTime: 1_750_000_000_000,
       extra: true,
+    })).toBeNull();
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry_pong',
+      nonce: 7,
+    })).toBeNull();
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry_pong',
+      nonce: 7,
+      serverTime: Number.NaN,
     })).toBeNull();
     expect(parseLobbyMultiplayerMessage({
       type: 'telemetry',
@@ -526,7 +539,9 @@ describe('vehicle lease multiplayer protocol', () => {
       type: 'telemetry', id: 'self-0001', fps: 59, rttMs: 42,
       state: 'moving', region: 'China', updatedAt: 123,
     }));
-    multiplayer.handleMessage(parseLobbyMultiplayerMessage({ type: 'telemetry_pong', nonce: 7 }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'telemetry_pong', nonce: 7, serverTime: 1_750_000_000_000,
+    }));
     multiplayer.handleMessage(parseLobbyMultiplayerMessage({
       type: 'vehicle_claimed', vehicle: vehicleSnapshot({ driverId: 'self-0001' }),
     }));
@@ -561,6 +576,84 @@ describe('vehicle lease multiplayer protocol', () => {
     expect(telemetry.updateActivity).toHaveBeenCalledWith('self-0001', 'driving');
     expect(telemetry.setLocalActivity).toHaveBeenCalledWith('playing');
     expect(telemetry.playerLeft).toHaveBeenCalledWith('alice-0001');
+  });
+
+  it('routes the real pong schema into RTT calculation and a telemetry send', () => {
+    vi.useFakeTimers();
+    const multiplayer = multiplayerHarness();
+    const telemetry = multiplayer.createTelemetryController();
+    Object.assign(multiplayer, { telemetry });
+    try {
+      telemetry.connect('self-0001', 'lobby:0000', []);
+      telemetry.ping();
+      vi.advanceTimersByTime(42);
+      multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+        type: 'telemetry_pong',
+        nonce: 1,
+        serverTime: 1_750_000_000_000,
+      }));
+
+      const payloads = multiplayer.socket.send.mock.calls.map(([payload]) => JSON.parse(String(payload)));
+      expect(payloads).toEqual([
+        { type: 'telemetry_ping', nonce: 1 },
+        expect.objectContaining({ type: 'telemetry', rttMs: 42 }),
+      ]);
+      expect(telemetry.getState().players[0]).toMatchObject({ id: 'self-0001', rttMs: 42 });
+    } finally {
+      telemetry.stop();
+    }
+  });
+
+  it('maps an idle remote pose to playing in a level and online in a lobby', () => {
+    const multiplayer = multiplayerHarness();
+    const remote = actorStub('alice-0001');
+    remote.profile.name = '访客';
+    multiplayer.peers.set('alice-0001', remote);
+    Object.assign(multiplayer, { channel: 'level:party-12345678-1234-4234-8234-123456789abc' });
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'pose', id: 'alice-0001', x: 1, y: 0, z: 0, yaw: 0, moving: false,
+    }));
+    expect(multiplayer.telemetry.updateActivity).toHaveBeenLastCalledWith('alice-0001', 'playing');
+
+    Object.assign(multiplayer, { channel: 'lobby:0000' });
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'pose', id: 'alice-0001', x: 2, y: 0, z: 0, yaw: 0, moving: false,
+    }));
+    expect(multiplayer.telemetry.updateActivity).toHaveBeenLastCalledWith('alice-0001', 'online');
+  });
+
+  it('clears driving telemetry for inbound, outbound, and local vehicle recovery paths', () => {
+    const multiplayer = multiplayerHarness();
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'vehicle_recovery',
+      reason: 'state_loss',
+      driverId: 'alice-0001',
+      vehicle: vehicleSnapshot({ driverId: 'alice-0001', recovering: true }),
+    }));
+    expect(multiplayer.telemetry.updateActivity).toHaveBeenLastCalledWith('alice-0001', 'online');
+
+    Object.assign(multiplayer, {
+      channel: 'level:party-12345678-1234-4234-8234-123456789abc',
+      vehicleLeaseSupported: true,
+      localVehicleLease: { objectId: 'object-car-0001', leaseId: VEHICLE_LEASE_ID },
+    });
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'vehicle_recovery',
+      reason: 'state_loss',
+      driverId: 'self-0001',
+      vehicle: vehicleSnapshot({ driverId: 'self-0001', seq: 8, recovering: true }),
+    }));
+    expect(multiplayer.telemetry.updateActivity).toHaveBeenLastCalledWith('self-0001', 'playing');
+
+    const outbound = multiplayerHarness();
+    outbound.vehicleLeaseSupported = true;
+    expect(outbound.requestVehicleRecovery('object-car-0001', VEHICLE_LEASE_ID)).toBe(true);
+    expect(outbound.telemetry.setLocalActivity).toHaveBeenLastCalledWith('online');
+
+    const local = multiplayerHarness();
+    local.vehicles.set('object-car-0001', vehicleSnapshot({ driverId: 'self-0001' }));
+    local.clearVehicleSession(true);
+    expect(local.telemetry.updateActivity).toHaveBeenLastCalledWith('self-0001', 'online');
   });
 
   it('samples frames, tracks visibility, and stops telemetry on disconnect', () => {
