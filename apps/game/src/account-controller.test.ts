@@ -467,6 +467,44 @@ describe('email auth operations', () => {
     expect(elements.get('account-reset-password')!.value).toBe('');
   });
 
+  it('prefills registration through bubbling click and renders the code target', () => {
+    const { elements } = initializedController({});
+    const email = elements.get('account-email-input')!;
+    email.value = ' Player@Example.COM ';
+    elements.get('account-register-btn')!.dispatchEvent(new Event('click'));
+    expect(elements.get('account-register-dialog')!.open).toBe(true);
+    expect(elements.get('account-register-email')!.value).toBe('player@example.com');
+    expect(elements.get('account-register-password')!.focus).toHaveBeenCalled();
+  });
+
+  it('guards registration close while an OTP request is busy', async () => {
+    let resolveSend!: () => void;
+    const { elements } = initializedController({ sendOtp: vi.fn(() => new Promise<void>((resolve) => { resolveSend = resolve; })), verifyOtp: vi.fn(), setPassword: vi.fn(), exchangeSession: vi.fn() });
+    elements.get('account-register-btn')!.dispatchEvent(new Event('click'));
+    elements.get('account-register-email')!.value = 'player@example.com';
+    elements.get('account-register-password')!.value = 'register-password';
+    elements.get('account-register-password-confirm')!.value = 'register-password';
+    elements.get('account-register-form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(elements.get('account-register-close')!.disabled).toBe(true));
+    elements.get('account-register-close')!.dispatchEvent(new Event('click'));
+    expect(elements.get('account-register-dialog')!.open).toBe(true);
+    resolveSend();
+    await vi.waitFor(() => expect(elements.get('account-register-close')!.disabled).toBe(false));
+  });
+
+  it('guards recovery close and back while a reset-mail request is busy', async () => {
+    let resolveMail!: () => void;
+    const { elements } = initializedController({ sendRecoveryEmail: vi.fn(() => new Promise<void>((resolve) => { resolveMail = resolve; })) });
+    elements.get('account-reset-open')!.dispatchEvent(new Event('click'));
+    elements.get('account-reset-email')!.value = 'player@example.com';
+    elements.get('account-reset-form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(elements.get('account-reset-close')!.disabled).toBe(true));
+    elements.get('account-reset-back')!.dispatchEvent(new Event('click'));
+    expect(elements.get('account-reset-dialog')!.open).toBe(true);
+    resolveMail();
+    await vi.waitFor(() => expect(elements.get('account-reset-back')!.disabled).toBe(false));
+  });
+
   it('signs out locally after clearing the server session and redacts provider errors', async () => {
     const reload = vi.fn();
     const signOut = vi.fn(async () => ({ error: null }));
