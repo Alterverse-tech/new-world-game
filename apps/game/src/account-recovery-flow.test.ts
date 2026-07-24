@@ -18,6 +18,11 @@ describe('captureRecoveryHash', () => {
     expect(captureRecoveryHash({ location: { hash: '#chapter=2', pathname: '/', search: '' }, replaceState })).toBeNull();
     expect(replaceState).not.toHaveBeenCalled();
   });
+  it('captures error callbacks and clears their URL hash', () => {
+    const replaceState = vi.fn();
+    expect(captureRecoveryHash({ location: { hash: '#error=access_denied', pathname: '/', search: '' }, replaceState })).toBe('#error=access_denied');
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/');
+  });
 });
 
 describe('AccountRecoveryFlow', () => {
@@ -59,5 +64,11 @@ describe('AccountRecoveryFlow', () => {
       flow.openRecovery('#access_token=recovery-secret&type=recovery'); port.values.password = port.values.confirmation = 'new-password'; const update = flow.updatePassword();
       await vi.advanceTimersByTimeAsync(0); expect(port.values.password).toBe(''); expect(onSuccess).not.toHaveBeenCalled(); await vi.advanceTimersByTimeAsync(649); expect(onSuccess).not.toHaveBeenCalled(); await vi.advanceTimersByTimeAsync(1); await update; expect(onSuccess).toHaveBeenCalledOnce();
     } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['#error=access_denied', '#type=recovery', '#not-a-query'])('invalid callback %s clears prior recovery secrets', async (hash) => {
+    const port = makePort(); const updateRecoveredPassword = vi.fn(); const flow = new AccountRecoveryFlow({ port, service: { sendRecoveryEmail: vi.fn(), updateRecoveredPassword } });
+    flow.openRecovery('#access_token=old-token&type=recovery'); port.values.password = port.values.confirmation = 'new-password'; flow.openRecovery(hash);
+    expect(flow.getState()).toMatchObject({ mode: 'email', messageState: 'error' }); expect(port.values.password).toBe(''); await flow.updatePassword(); expect(updateRecoveredPassword).not.toHaveBeenCalled();
   });
 });

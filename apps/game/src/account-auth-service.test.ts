@@ -23,6 +23,11 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+async function rejected(promise: Promise<unknown>): Promise<Error> {
+  try { await promise; } catch (error) { return error as Error; }
+  throw new Error('expected promise rejection');
+}
+
 describe('AccountAuthService', () => {
   it('loads config and creates exactly one shared client', async () => {
     const fetchImpl = vi.fn(async () => configResponse());
@@ -225,22 +230,16 @@ describe('AccountAuthService', () => {
     ['over_request_rate_limit', '请求过于频繁，请稍后再试。', true],
   ])('maps recovery code %s without body exposure', async (code, message, retryable) => {
     const service = new AccountAuthService({ fetchImpl: vi.fn().mockResolvedValueOnce(configResponse()).mockResolvedValueOnce(new Response(JSON.stringify({ code, secret: 'server-secret' }), { status: 400 })) });
-    await service.sendRecoveryEmail('player@example.com', 'https://altverse.fun/').catch((error: unknown) => {
-      expect(error).toBeInstanceOf(AccountRecoveryRequestError);
-      expect((error as AccountRecoveryRequestError).message).toBe(message);
-      expect((error as AccountRecoveryRequestError).canRetryPassword).toBe(retryable);
-      expect(String(error)).not.toContain('server-secret');
-    });
+    const error = await rejected(service.sendRecoveryEmail('player@example.com', 'https://altverse.fun/')) as AccountRecoveryRequestError;
+    expect(error).toBeInstanceOf(AccountRecoveryRequestError);
+    expect(error.message).toBe(message); expect(error.canRetryPassword).toBe(retryable); expect(String(error)).not.toContain('server-secret');
   });
 
   it('classifies only explicit unauthorized recovery responses as fatal', async () => {
     for (const [status, retryable] of [[401, false], [429, true], [500, true]] as const) {
       const service = new AccountAuthService({ fetchImpl: vi.fn().mockResolvedValueOnce(configResponse()).mockResolvedValueOnce(new Response('secret-body', { status })) });
-      await service.updateRecoveredPassword('recovery-token', 'new-password').catch((error: unknown) => {
-        expect(error).toBeInstanceOf(AccountRecoveryRequestError);
-        expect((error as AccountRecoveryRequestError).canRetryPassword).toBe(retryable);
-        expect(String(error)).not.toContain('secret-body');
-      });
+      const error = await rejected(service.updateRecoveredPassword('recovery-token', 'new-password')) as AccountRecoveryRequestError;
+      expect(error).toBeInstanceOf(AccountRecoveryRequestError); expect(error.canRetryPassword).toBe(retryable); expect(String(error)).not.toContain('secret-body');
     }
   });
 
