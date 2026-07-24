@@ -599,7 +599,7 @@
   right: max(16px, env(safe-area-inset-right));
   bottom: max(16px, env(safe-area-inset-bottom));
   left: auto;
-  width: min(320px, calc(100vw - 32px));
+  width: min(var(--lobby-editor-width, 420px), calc(100vw - 32px));
   max-height: none;
   padding: 16px;
   gap: 12px;
@@ -613,6 +613,46 @@
 }
 
 .lobby-editor-panel.visible { transform: translateX(0); }
+
+.lobby-editor-resize {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  border: 0;
+  outline: 0;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.lobby-editor-resize::after {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 3px;
+  height: 56px;
+  border-radius: 99px;
+  background: rgba(28, 28, 26, 0.16);
+  content: "";
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.16s ease, background 0.16s ease;
+}
+
+.lobby-editor-resize:hover::after,
+.lobby-editor-resize:focus-visible::after,
+.lobby-editor-resize[data-resizing="true"]::after {
+  background: rgba(28, 28, 26, 0.42);
+  opacity: 1;
+}
+
+body.lobby-editor-resizing,
+body.lobby-editor-resizing * {
+  cursor: ew-resize !important;
+  user-select: none !important;
+}
 
 .lobby-editor-head {
   flex: 0 0 auto;
@@ -635,6 +675,7 @@
 }
 
 .lobby-exit {
+  flex: 0 0 auto;
   min-height: 32px;
   height: 32px;
   padding: 0 14px;
@@ -643,6 +684,7 @@
   background: var(--hud-ink);
   color: white;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .lobby-presence {
@@ -733,6 +775,12 @@
 .lobby-create-actions .lobby-asset-upload form {
   max-height: min(390px, 52vh);
   padding: 11px;
+}
+
+.lobby-prop-creator .lobby-prop-creator-meta,
+.lobby-prop-creator .lobby-prop-review-note,
+.lobby-prop-creator #lobby-prop-creator-status {
+  display: none;
 }
 
 .lobby-library-head {
@@ -951,6 +999,7 @@
   }
 
   .lobby-editor-panel.visible { transform: translateY(0); }
+  .lobby-editor-resize { display: none; }
   .avatar-wardrobe-dialog { top: 58px; right: 8px; left: 8px; width: auto; max-height: calc(100dvh - 66px); }
   .avatar-wardrobe-shell { max-height: calc(100dvh - 68px); }
 }

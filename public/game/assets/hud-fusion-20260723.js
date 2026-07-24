@@ -20,6 +20,8 @@
   const avatarEntry = document.querySelector("#avatar-wardrobe-entry");
   const avatarDialog = document.querySelector("#avatar-wardrobe-dialog");
   const avatarClose = document.querySelector("#avatar-wardrobe-close");
+  const editorPanel = document.querySelector("#lobby-editor-panel");
+  const editorResize = document.querySelector("#lobby-editor-resize");
 
   const elements = [
     hud,
@@ -43,8 +45,77 @@
     avatarEntry,
     avatarDialog,
     avatarClose,
+    editorPanel,
+    editorResize,
   ];
   if (elements.some((element) => !element)) return;
+
+  const EDITOR_WIDTH_STORAGE_KEY = "whiteroom:lobby-editor-width";
+  const EDITOR_WIDTH_DEFAULT = 420;
+  const EDITOR_WIDTH_MIN = 320;
+  const EDITOR_WIDTH_MAX = 680;
+  const editorWidthLimit = () => Math.max(EDITOR_WIDTH_MIN, Math.min(EDITOR_WIDTH_MAX, window.innerWidth - 32));
+  const clampEditorWidth = (width) => Math.min(editorWidthLimit(), Math.max(EDITOR_WIDTH_MIN, width));
+  const setEditorWidth = (width) => {
+    const nextWidth = clampEditorWidth(width);
+    editorPanel.style.setProperty("--lobby-editor-width", `${nextWidth}px`);
+    editorResize.setAttribute("aria-valuenow", String(nextWidth));
+    return nextWidth;
+  };
+  const saveEditorWidth = (width) => {
+    try {
+      window.localStorage.setItem(EDITOR_WIDTH_STORAGE_KEY, String(Math.round(width)));
+    } catch {
+      // Width persistence is optional when storage is unavailable.
+    }
+  };
+
+  let savedEditorWidth = EDITOR_WIDTH_DEFAULT;
+  try {
+    const storedValue = window.localStorage.getItem(EDITOR_WIDTH_STORAGE_KEY);
+    const storedWidth = Number(storedValue);
+    if (storedValue !== null && Number.isFinite(storedWidth)) savedEditorWidth = storedWidth;
+  } catch {
+    // Keep the default width when storage is unavailable.
+  }
+  editorResize.setAttribute("aria-valuemin", String(EDITOR_WIDTH_MIN));
+  editorResize.setAttribute("aria-valuemax", String(EDITOR_WIDTH_MAX));
+  setEditorWidth(savedEditorWidth);
+
+  let editorResizeStart = null;
+  editorResize.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || window.innerWidth <= 760) return;
+    event.preventDefault();
+    editorResizeStart = { pointerX: event.clientX, width: editorPanel.getBoundingClientRect().width };
+    editorResize.setPointerCapture(event.pointerId);
+    editorResize.dataset.resizing = "true";
+    document.body.classList.add("lobby-editor-resizing");
+  });
+  editorResize.addEventListener("pointermove", (event) => {
+    if (!editorResizeStart || !editorResize.hasPointerCapture(event.pointerId)) return;
+    setEditorWidth(editorResizeStart.width + editorResizeStart.pointerX - event.clientX);
+  });
+  const finishEditorResize = (event) => {
+    if (!editorResizeStart) return;
+    if (editorResize.hasPointerCapture(event.pointerId)) editorResize.releasePointerCapture(event.pointerId);
+    editorResizeStart = null;
+    editorResize.dataset.resizing = "false";
+    document.body.classList.remove("lobby-editor-resizing");
+    saveEditorWidth(editorPanel.getBoundingClientRect().width);
+  };
+  editorResize.addEventListener("pointerup", finishEditorResize);
+  editorResize.addEventListener("pointercancel", finishEditorResize);
+  editorResize.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const step = event.shiftKey ? 40 : 16;
+    const direction = event.key === "ArrowLeft" ? 1 : -1;
+    const nextWidth = setEditorWidth(editorPanel.getBoundingClientRect().width + direction * step);
+    saveEditorWidth(nextWidth);
+  });
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 760) setEditorWidth(editorPanel.getBoundingClientRect().width);
+  });
 
   const setPanelOpen = (panel, trigger, open) => {
     panel.hidden = !open;
