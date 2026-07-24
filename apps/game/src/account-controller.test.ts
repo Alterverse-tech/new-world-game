@@ -514,6 +514,15 @@ describe('email auth operations', () => {
     await vi.waitFor(() => expect(verifyOtp).toHaveBeenCalledWith('player@example.com', '123456')); expect(code.value).toBe('123456');
   });
 
+  it('prefills reset email through bubbling open and visibly ticks registration resend', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0); const { elements, timeouts } = initializedController({ sendOtp: vi.fn(async () => {}) });
+    elements.get('account-email-input')!.value = ' Player@Example.COM '; elements.get('account-reset-open')!.dispatchEvent(new Event('click'));
+    expect(elements.get('account-reset-email')!.value).toBe('player@example.com');
+    elements.get('account-register-btn')!.dispatchEvent(new Event('click')); elements.get('account-register-email')!.value = 'player@example.com'; elements.get('account-register-password')!.value = 'register-password'; elements.get('account-register-password-confirm')!.value = 'register-password'; elements.get('account-register-form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(elements.get('account-register-resend')!.textContent).toBe('重新发送验证码（60s）')); expect(elements.get('account-register-resend')!.disabled).toBe(true);
+    now.mockReturnValue(60_000); timeouts.at(-1)!.callback(); expect(elements.get('account-register-resend')!.disabled).toBe(false);
+  });
+
   it('signs out locally after clearing the server session and redacts provider errors', async () => {
     const reload = vi.fn();
     const signOut = vi.fn(async () => ({ error: null }));

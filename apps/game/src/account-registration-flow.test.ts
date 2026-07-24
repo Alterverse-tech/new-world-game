@@ -65,4 +65,14 @@ describe('AccountRegistrationFlow', () => {
       expect(trace).toEqual(['send', 'verify', 'password', 'exchange', 'delete', 'reload']);
     } finally { vi.useRealTimers(); }
   });
+
+  it('restores only matching email cooldown and deduplicates resend while busy', async () => {
+    const values = { email: 'player@example.com', password: 'register-password', confirmation: 'register-password', token: '' };
+    const ui = makePort(values); let resolveSend!: () => void;
+    const storage = { get: vi.fn(() => JSON.stringify({ email: 'other@example.com', until: 61_000 })), set: vi.fn(), delete: vi.fn() };
+    const sendOtp = vi.fn(() => new Promise<void>((resolve) => { resolveSend = resolve; }));
+    const flow = new AccountRegistrationFlow({ port: ui, service: { sendOtp, verifyOtp: vi.fn(), setPassword: vi.fn(), exchangeSession: vi.fn() }, storage, now: () => 1_000, redirectTo: 'https://altverse.fun/', reload: vi.fn() });
+    const sending = flow.submit(); await flow.resend(); expect(sendOtp).toHaveBeenCalledOnce(); resolveSend(); await sending;
+    storage.get.mockReturnValue(JSON.stringify({ email: 'player@example.com', until: 61_000 })); flow.open('player@example.com'); values.password = values.confirmation = 'register-password'; await flow.submit(); expect(flow.getState()).toMatchObject({ stage: 'verify', cooldownSeconds: 60 });
+  });
 });
