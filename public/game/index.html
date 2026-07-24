@@ -15,18 +15,18 @@
     <script src="./assets/account-login-otp-20260722.js?v=otp1" defer></script>
     <script src="./assets/account-register-20260721.js?v=otp6" defer></script>
     <script src="./assets/account-reset-20260721.js?v=reset1" defer></script>
-    <script src="./assets/player-stats-20260721.js?v=stats4"></script>
+    <script src="./assets/player-stats-20260721.js?v=stats6"></script>
     <script src="./assets/game-experience-20260721.js?v=game1" defer></script>
     <script src="./assets/entry-terminal-20260723.js?v=entry1" defer></script>
-    <script src="./assets/hud-fusion-20260723.js?v=hud1" defer></script>
-    <script type="module" crossorigin src="./assets/index-BICRz_YN.js?v=world-cycle1"></script>
+    <script src="./assets/hud-fusion-20260723.js?v=hud3" defer></script>
+    <script type="module" crossorigin src="./assets/index-BICRz_YN.js?v=world-cycle2"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-7Eajp7Zf.css">
-    <link rel="stylesheet" href="./assets/entry-terminal-20260723.css?v=entry1">
+    <link rel="stylesheet" href="./assets/entry-terminal-20260723.css?v=entry6">
     <link rel="stylesheet" href="./assets/player-stats-20260721.css?v=stats4">
     <link rel="stylesheet" href="./assets/account-login-otp-20260722.css?v=otp3">
     <link rel="stylesheet" href="./assets/account-register-20260721.css?v=otp5">
     <link rel="stylesheet" href="./assets/account-reset-20260721.css?v=reset1">
-    <link rel="stylesheet" href="./assets/hud-fusion-20260723.css?v=hud1">
+    <link rel="stylesheet" href="./assets/hud-fusion-20260723.css?v=hud3">
   </head>
   <body>
     <div id="app">
@@ -415,8 +415,8 @@
           <div class="hud-map-canvas" aria-hidden="true">
             <span class="hud-map-zone">广场</span><i></i><i></i><i></i><b></b>
           </div>
-          <div class="hud-map-row"><span>◈</span><p><b>中央广场</b><small>频道公共区</small></p><button type="button" disabled>当前位置</button></div>
-          <div class="hud-map-row"><span>◇</span><p><b>我的家园</b><small>领地选择与管理</small></p><button id="hud-map-home-action" type="button">管理领地</button></div>
+          <div class="hud-map-row"><span>◈</span><p><b>中央广场</b><small>频道公共区</small></p><button id="hud-map-plaza-action" type="button" disabled>当前位置</button></div>
+          <div class="hud-map-row"><span>◇</span><p><b>我的家园</b><small id="hud-map-home-meta">正在同步领地</small></p><button id="hud-map-home-action" type="button">选择领地</button></div>
         </section>
         <section id="hud-help-overlay" class="hud-help-overlay" aria-label="键位一览" aria-hidden="true" hidden>
           <div class="hud-help-card">

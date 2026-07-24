@@ -348,13 +348,33 @@
     }
     if (!message || typeof message.type !== 'string') return;
     if (message.type === 'pose') {
+      dispatchLocalPose(message);
       localState = message.moving ? 'moving' : (currentChannel.indexOf('level:') === 0 ? 'playing' : 'online');
     } else if (message.type === 'vehicle_enter' || message.type === 'vehicle_state') {
+      if (message.type === 'vehicle_state') dispatchLocalPose(message);
       localState = 'driving';
     } else if (message.type === 'vehicle_exit' || message.type === 'vehicle_recover' || message.type === 'return_lobby') {
       localState = currentChannel.indexOf('level:') === 0 ? 'playing' : 'online';
     }
     updateSelf();
+  }
+
+  function dispatchLocalPose(message) {
+    if (
+      !Number.isFinite(message.x)
+      || !Number.isFinite(message.z)
+      || !Number.isFinite(message.yaw)
+    ) return;
+    document.dispatchEvent(new CustomEvent('whiteroom:local-pose', {
+      detail: {
+        x: message.x,
+        y: Number.isFinite(message.y) ? message.y : 0,
+        z: message.z,
+        yaw: message.yaw,
+        channel: currentChannel,
+        controlTarget: message.type === 'vehicle_state' ? 'vehicle' : 'player'
+      }
+    }));
   }
 
   function trackSocket(socket) {

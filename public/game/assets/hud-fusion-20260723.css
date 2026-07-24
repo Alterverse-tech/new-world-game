@@ -358,7 +358,7 @@
 #hud .player-stat-region { color: var(--hud-copy); }
 
 /* Bottom-right minimap and map popover. */
-.hud-map-entry {
+#hud .hud-map-entry {
   position: absolute;
   z-index: 20;
   right: max(16px, env(safe-area-inset-right));
@@ -376,9 +376,9 @@
   cursor: pointer;
 }
 
-.hud-map-entry:hover,
-.hud-map-entry:focus-visible,
-.hud-map-entry[aria-expanded="true"] {
+#hud .hud-map-entry:hover,
+#hud .hud-map-entry:focus-visible,
+#hud .hud-map-entry[aria-expanded="true"] {
   border-color: rgba(28, 28, 26, 0.2);
   box-shadow: 0 12px 30px rgba(28, 28, 26, 0.2);
   outline: 0;
@@ -398,14 +398,29 @@
 
 .hud-map-player {
   position: absolute;
-  top: 60%;
-  left: 56%;
+  top: var(--hud-map-player-y, 50%);
+  left: var(--hud-map-player-x, 50%);
   width: 8px;
   height: 8px;
   border: 2px solid white;
   border-radius: 50%;
   background: #17171b;
   box-shadow: 0 2px 6px rgba(28, 28, 26, 0.3);
+  transform: translate(-50%, -50%) rotate(var(--hud-map-player-yaw, 0deg));
+  transition: top 0.1s linear, left 0.1s linear;
+}
+
+.hud-map-player::after,
+.hud-map-canvas > b::after {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 2px;
+  height: 5px;
+  border-radius: 99px;
+  background: #17171b;
+  content: "";
+  transform: translateX(-50%);
 }
 
 .hud-map-entry small {
@@ -488,14 +503,16 @@
 
 .hud-map-canvas > b {
   position: absolute;
-  top: 58%;
-  left: 52%;
+  top: var(--hud-map-player-y, 50%);
+  left: var(--hud-map-player-x, 50%);
   width: 9px;
   height: 9px;
   border: 2px solid white;
   border-radius: 50%;
   background: #17171b;
   box-shadow: 0 2px 6px rgba(28, 28, 26, 0.3);
+  transform: translate(-50%, -50%) rotate(var(--hud-map-player-yaw, 0deg));
+  transition: top 0.1s linear, left 0.1s linear;
 }
 
 .hud-map-row {

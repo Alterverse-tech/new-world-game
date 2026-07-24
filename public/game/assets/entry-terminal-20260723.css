@@ -287,7 +287,7 @@
 
 #boot-overlay .lobby-channel-control {
   display: grid;
-  grid-template-columns: 38px 52px minmax(100px, 1fr) 12px auto;
+  grid-template-columns: 38px 52px minmax(100px, 1fr) 20px auto;
   min-height: 72px;
   padding: 7px 8px 7px 20px;
   align-items: center;
@@ -299,18 +299,19 @@
 
 #boot-overlay .lobby-channel-control > span {
   border: 0;
+  background: transparent;
 }
 
-.entry-terminal-mark {
+#boot-overlay .lobby-channel-control > .entry-terminal-mark {
   display: block;
   color: var(--entry-ink);
   font: 700 17px/1 var(--entry-mono);
 }
 
-.entry-channel-label {
+#boot-overlay .lobby-channel-control > .entry-channel-label {
   color: var(--entry-muted);
-  font: 500 11px/1 var(--entry-mono);
-  letter-spacing: 0.18em;
+  font: 650 13px/1 var(--entry-mono);
+  letter-spacing: 0.12em;
 }
 
 #boot-overlay #lobby-channel-input {
@@ -319,6 +320,7 @@
   min-width: 0;
   padding: 0 8px;
   color: var(--entry-ink);
+  caret-color: var(--entry-ink);
   border: 0;
   outline: 0;
   background: transparent;
@@ -336,9 +338,10 @@
   box-shadow: none;
 }
 
-.entry-channel-caret {
+#boot-overlay .lobby-channel-control > .entry-channel-caret {
   width: 10px;
   height: 28px;
+  margin-right: 10px;
   background: var(--entry-ink);
   animation: entry-blink 1.1s steps(1) infinite;
 }
@@ -638,13 +641,17 @@
   #boot-overlay .lobby-channel-form { width: min(520px, calc(100vw - 28px)); margin-top: 30px; }
 
   #boot-overlay .lobby-channel-control {
-    grid-template-columns: 30px 42px minmax(76px, 1fr) 8px;
+    grid-template-columns: 30px 42px minmax(76px, 1fr) 15px;
     min-height: 62px;
     padding-left: 12px;
   }
 
   #boot-overlay #lobby-channel-input { padding: 0 3px; font-size: 20px; }
-  .entry-channel-caret { width: 7px; height: 24px; }
+  #boot-overlay .lobby-channel-control > .entry-channel-caret {
+    width: 7px;
+    height: 24px;
+    margin-right: 8px;
+  }
 
   #boot-overlay .lobby-channel-control .primary-btn {
     grid-column: 1 / -1;
