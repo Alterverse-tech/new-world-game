@@ -3,9 +3,73 @@ import {
   PlayerTelemetryController,
   detectPlayerRegion,
   normalizePlayerTelemetry,
+  renderPlayerStats,
   type PlayerTelemetryDependencies,
   type PlayerTelemetryState,
 } from './player-telemetry';
+
+class FakeClassList {
+  private readonly values = new Set<string>();
+
+  public toggle(name: string, force?: boolean): void {
+    if (force === false) this.values.delete(name);
+    else if (force === true || !this.values.has(name)) this.values.add(name);
+    else this.values.delete(name);
+  }
+
+  public contains(name: string): boolean {
+    return this.values.has(name);
+  }
+}
+
+class FakeElement {
+  public className = '';
+  public textContent = '';
+  public title = '';
+  public readonly classList = new FakeClassList();
+  public readonly dataset: Record<string, string> = {};
+  public readonly children: FakeElement[] = [];
+  public readonly attributes = new Map<string, string>();
+
+  public set innerHTML(_value: string) {
+    throw new Error('renderPlayerStats must not use innerHTML');
+  }
+
+  public append(...children: FakeElement[]): void {
+    this.children.push(...children);
+  }
+
+  public appendChild(child: FakeElement): FakeElement {
+    this.children.push(child);
+    return child;
+  }
+
+  public replaceChildren(...children: FakeElement[]): void {
+    this.children.splice(0, this.children.length, ...children);
+  }
+
+  public setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+}
+
+class FakeDocument {
+  private readonly elements = new Map<string, FakeElement>();
+
+  public add(id: string): FakeElement {
+    const element = new FakeElement();
+    this.elements.set(id, element);
+    return element;
+  }
+
+  public getElementById(id: string): FakeElement | null {
+    return this.elements.get(id) ?? null;
+  }
+
+  public createElement(): FakeElement {
+    return new FakeElement();
+  }
+}
 
 interface Harness {
   controller: PlayerTelemetryController;
@@ -59,6 +123,93 @@ describe('player telemetry', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('renders safely when the DOM or stats panel is absent', () => {
+    const state: PlayerTelemetryState = {
+      connection: 'connecting',
+      selfId: null,
+      channel: 'lobby',
+      players: [],
+    };
+    vi.stubGlobal('document', undefined);
+    expect(() => renderPlayerStats(state)).not.toThrow();
+    vi.stubGlobal('document', new FakeDocument());
+    expect(() => renderPlayerStats(state)).not.toThrow();
+  });
+
+  it('renders player names as text with production state and metric labels', () => {
+    const document = new FakeDocument();
+    const panel = document.add('player-stats-panel');
+    const summary = document.add('player-stats-summary');
+    const list = document.add('player-stats-list');
+    vi.stubGlobal('document', document);
+
+    renderPlayerStats({
+      connection: 'online',
+      selfId: 'self-0001',
+      channel: 'lobby:0000',
+      players: [{
+        id: 'self-0001',
+        name: '<img src=x onerror=alert(1)>',
+        connected: true,
+        fps: 60,
+        rttMs: 42,
+        state: 'moving',
+        region: '<script>China</script>',
+        updatedAt: 123,
+      }, {
+        id: 'alice-0001',
+        name: 'Alice',
+        connected: true,
+        fps: 12,
+        rttMs: 240,
+        state: 'away',
+        region: 'Canada',
+        updatedAt: 123,
+      }],
+    });
+
+    expect(panel.classList.contains('is-offline')).toBe(false);
+    expect(summary.textContent).toBe('2 人在线');
+    expect(list.children).toHaveLength(2);
+    const self = list.children[0]!;
+    expect(self.dataset.state).toBe('moving');
+    expect(self.children[0]!.children[1]!.children[0]!.textContent).toBe('<img src=x onerror=alert(1)>');
+    expect(self.children[0]!.children[1]!.children[1]!.textContent).toBe('你');
+    expect(self.children[1]!.textContent).toBe('移动中');
+    expect(self.children[2]!.textContent).toBe('42ms');
+    expect(self.children[2]!.className).toContain('is-good');
+    expect(self.children[3]!.textContent).toBe('60');
+    expect(self.children[3]!.className).toContain('is-good');
+    expect(self.children[4]!.textContent).toBe('<script>China</script>');
+    expect(self.children[4]!.title).toBe('<script>China</script>');
+    expect(list.children[1]!.children[2]!.className).toContain('is-poor');
+    expect(list.children[1]!.children[3]!.className).toContain('is-poor');
+  });
+
+  it('renders the offline empty state without player rows', () => {
+    const document = new FakeDocument();
+    const panel = document.add('player-stats-panel');
+    const summary = document.add('player-stats-summary');
+    const list = document.add('player-stats-list');
+    vi.stubGlobal('document', document);
+
+    renderPlayerStats({
+      connection: 'offline',
+      selfId: null,
+      channel: 'lobby',
+      players: [],
+    });
+
+    expect(panel.classList.contains('is-offline')).toBe(true);
+    expect(summary.textContent).toBe('连接中断');
+    expect(list.children).toHaveLength(1);
+    expect(list.children[0]).toMatchObject({
+      className: 'player-stats-empty',
+      textContent: '多人服务暂时不可用',
+    });
   });
 
   it('clamps untrusted metrics, accepts only known activities, and sanitizes regions', () => {

@@ -333,6 +333,16 @@
           <span id="multiplayer-view">第一人称</span>
           <small id="multiplayer-view-hint">V 切换视角</small>
         </div>
+        <section id="player-stats-panel" class="player-stats-panel" aria-label="玩家运行状态">
+          <header>
+            <div><span class="player-stats-live" aria-hidden="true"></span><b>玩家状态</b></div>
+            <small id="player-stats-summary">正在连接</small>
+          </header>
+          <div class="player-stats-labels" aria-hidden="true">
+            <span>玩家</span><span>状态</span><span>延时</span><span>FPS</span><span>REGION</span>
+          </div>
+          <div id="player-stats-list" class="player-stats-list"></div>
+        </section>
         <button id="avatar-wardrobe-entry" class="avatar-wardrobe-entry hidden" type="button" aria-controls="avatar-wardrobe-dialog" aria-expanded="false">
           <span aria-hidden="true">◎</span><b>更换形象</b><small>P · 随时换装</small>
         </button>

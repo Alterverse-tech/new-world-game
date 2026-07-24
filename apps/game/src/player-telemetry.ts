@@ -175,6 +175,104 @@ export function detectPlayerRegion(): string {
   }
 }
 
+function playerActivityLabel(player: Readonly<PlayerTelemetryRow>): string {
+  if (!player.connected) return '离线';
+  return {
+    online: '在线',
+    moving: '移动中',
+    driving: '驾驶中',
+    playing: '游戏中',
+    away: '暂离',
+  }[player.state];
+}
+
+function metricClass(value: number, kind: 'rtt' | 'fps'): string {
+  if (!value) return '';
+  if (kind === 'rtt') {
+    if (value <= 80) return 'is-good';
+    if (value <= 160) return 'is-fair';
+    return 'is-poor';
+  }
+  if (value >= 50) return 'is-good';
+  if (value >= 30) return 'is-fair';
+  return 'is-poor';
+}
+
+function createMetric(value: number, suffix: string, kind: 'rtt' | 'fps'): HTMLElement {
+  const element = document.createElement('span');
+  const quality = metricClass(value, kind);
+  element.className = quality ? `player-stat-metric ${quality}` : 'player-stat-metric';
+  element.textContent = value ? `${value}${suffix}` : '--';
+  return element;
+}
+
+export function renderPlayerStats(state: Readonly<PlayerTelemetryState>): void {
+  if (typeof document === 'undefined') return;
+  const panel = document.getElementById('player-stats-panel');
+  const list = document.getElementById('player-stats-list');
+  const summary = document.getElementById('player-stats-summary');
+  if (!panel || !list || !summary) return;
+
+  panel.classList.toggle('is-offline', state.connection === 'offline');
+  const players = [...state.players].sort((left, right) => {
+    if (left.id === state.selfId) return -1;
+    if (right.id === state.selfId) return 1;
+    return left.name.localeCompare(right.name, 'zh-CN') || left.id.localeCompare(right.id);
+  });
+  summary.textContent = state.connection === 'offline'
+    ? '连接中断'
+    : `${players.filter((player) => player.connected).length} 人在线`;
+  list.replaceChildren();
+  if (players.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'player-stats-empty';
+    empty.textContent = state.connection === 'offline' ? '多人服务暂时不可用' : '正在同步玩家信息';
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const player of players) {
+    const row = document.createElement('div');
+    row.className = 'player-stat-row';
+    row.dataset.state = player.connected ? player.state : 'offline';
+
+    const person = document.createElement('div');
+    person.className = 'player-stat-person';
+    const dot = document.createElement('span');
+    dot.className = 'player-stat-dot';
+    dot.setAttribute('aria-hidden', 'true');
+    const copy = document.createElement('div');
+    copy.className = 'player-stat-person-copy';
+    const name = document.createElement('span');
+    name.className = 'player-stat-name';
+    name.textContent = player.name;
+    copy.appendChild(name);
+    if (player.id === state.selfId) {
+      const you = document.createElement('small');
+      you.className = 'player-stat-you';
+      you.textContent = '你';
+      copy.appendChild(you);
+    }
+    person.append(dot, copy);
+
+    const activity = document.createElement('span');
+    activity.className = 'player-stat-state';
+    activity.textContent = playerActivityLabel(player);
+    const region = document.createElement('span');
+    region.className = 'player-stat-region';
+    region.textContent = player.region || 'Unknown';
+    region.title = player.region || 'Unknown';
+    row.append(
+      person,
+      activity,
+      createMetric(player.rttMs, 'ms', 'rtt'),
+      createMetric(player.fps, '', 'fps'),
+      region,
+    );
+    list.appendChild(row);
+  }
+}
+
 function normalizePlayer(value: unknown): NormalizedPlayer | null {
   const source = recordOf(value);
   if (!source) return null;

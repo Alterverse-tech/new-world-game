@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   avatarModelUrl,
@@ -28,6 +29,7 @@ import {
   VEHICLE_LEASE_FEATURE,
   type LobbyVehicleSnapshot,
 } from './lobby-multiplayer';
+import type { PlayerActivity, PlayerTelemetryController } from './player-telemetry';
 
 const VEHICLE_LEASE_ID = 'lease-12345678-1234-4234-8234-123456789abc';
 
@@ -87,6 +89,44 @@ interface MultiplayerHarness {
   peers: Map<string, ReturnType<typeof actorStub>>;
   localVehicleLease: { objectId: string; leaseId: string } | null;
   connected: boolean;
+  connectionEpoch: number;
+  reconnectTimer: number;
+  disconnecting: boolean;
+  telemetry: TelemetrySpy;
+  disconnect: (reconnect: boolean) => void;
+  handleVisibilityChange: () => void;
+  createTelemetryController: () => PlayerTelemetryController;
+  connect: () => void;
+  visibilityListening: boolean;
+  visibilityListener: EventListener;
+}
+
+interface TelemetrySpy {
+  connect: ReturnType<typeof vi.fn>;
+  playerJoined: ReturnType<typeof vi.fn>;
+  playerLeft: ReturnType<typeof vi.fn>;
+  updateProfile: ReturnType<typeof vi.fn>;
+  updateActivity: ReturnType<typeof vi.fn<(id: string, activity: PlayerActivity) => void>>;
+  receive: ReturnType<typeof vi.fn>;
+  handlePong: ReturnType<typeof vi.fn>;
+  recordFrame: ReturnType<typeof vi.fn>;
+  setLocalActivity: ReturnType<typeof vi.fn<(activity: PlayerActivity) => void>>;
+  stop: ReturnType<typeof vi.fn>;
+}
+
+function telemetrySpy(): TelemetrySpy {
+  return {
+    connect: vi.fn(),
+    playerJoined: vi.fn(),
+    playerLeft: vi.fn(),
+    updateProfile: vi.fn(),
+    updateActivity: vi.fn(),
+    receive: vi.fn(),
+    handlePong: vi.fn(),
+    recordFrame: vi.fn(),
+    setLocalActivity: vi.fn(),
+    stop: vi.fn(),
+  };
 }
 
 function multiplayerHarness(onVehicleEvent = vi.fn()): MultiplayerHarness {
@@ -126,11 +166,37 @@ function multiplayerHarness(onVehicleEvent = vi.fn()): MultiplayerHarness {
     profileSendTimer: 0,
     partyInvite: null,
     partyState: null,
+    connectionEpoch: 0,
+    reconnectTimer: 0,
+    disconnecting: false,
+    telemetry: telemetrySpy(),
+    visibilityListening: false,
+    visibilityListener: vi.fn(),
   });
   return instance;
 }
 
 describe('lobby multiplayer protocol', () => {
+  it('keeps the exact production player stats panel and stylesheet in source', () => {
+    const sourceHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+    const productionHtml = readFileSync(new URL('../../../public/game/index.html', import.meta.url), 'utf8');
+    const sourceCss = readFileSync(new URL('./openai-theme.css', import.meta.url), 'utf8');
+    const productionCss = readFileSync(
+      new URL('../../../public/game/assets/player-stats-20260721.css', import.meta.url),
+      'utf8',
+    );
+    const normalize = (value: string): string => value.replace(/\s+/gu, ' ').trim();
+    const panelPattern = /<section id="player-stats-panel"[\s\S]*?<\/section>/u;
+    const productionPanel = productionHtml.match(panelPattern)?.[0];
+    const sourcePanel = sourceHtml.match(panelPattern)?.[0];
+
+    expect(productionPanel).toBeTruthy();
+    expect(normalize(sourcePanel ?? '')).toBe(normalize(productionPanel ?? ''));
+    expect(sourceHtml.indexOf('id="multiplayer-hud"')).toBeLessThan(sourceHtml.indexOf('id="player-stats-panel"'));
+    expect(sourceHtml.indexOf('id="player-stats-panel"')).toBeLessThan(sourceHtml.indexOf('id="avatar-wardrobe-entry"'));
+    expect(normalize(sourceCss)).toContain(normalize(productionCss));
+  });
+
   it('builds a same-origin WebSocket URL with each required query exactly once', () => {
     const result = new URL(buildLobbyWebSocketUrl('https://white.example/game', 'web-client-0001', {
       name: '海 东',
@@ -198,6 +264,124 @@ describe('lobby multiplayer protocol', () => {
         seq: 7,
         timestamp: 99,
       }],
+    });
+  });
+
+  it('strictly parses player telemetry and ping acknowledgements', () => {
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry',
+      id: 'alice-0001',
+      fps: 59,
+      rttMs: 42,
+      state: 'moving',
+      region: 'China',
+      updatedAt: 123,
+    })).toEqual({
+      type: 'telemetry',
+      id: 'alice-0001',
+      telemetry: {
+        fps: 59,
+        rttMs: 42,
+        state: 'moving',
+        region: 'China',
+        updatedAt: 123,
+      },
+    });
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry_pong',
+      nonce: 7,
+    })).toEqual({ type: 'telemetry_pong', nonce: 7 });
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry',
+      id: '../bad',
+      fps: 59,
+      rttMs: 42,
+      state: 'moving',
+      region: 'China',
+      updatedAt: 123,
+    })).toBeNull();
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry',
+      id: 'alice-0001',
+      fps: 59,
+      rttMs: 42,
+      state: 'moving',
+      region: 'China',
+      updatedAt: 123,
+      extra: true,
+    })).toBeNull();
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry_pong',
+      nonce: Number.POSITIVE_INFINITY,
+    })).toBeNull();
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry_pong',
+      nonce: 0,
+    })).toBeNull();
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry_pong',
+      nonce: 7,
+      extra: true,
+    })).toBeNull();
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry',
+      id: 'alice-0001',
+      fps: '59',
+      rttMs: 42,
+      state: 'moving',
+      region: 'China',
+      updatedAt: 123,
+    })).toBeNull();
+    expect(parseLobbyMultiplayerMessage({
+      type: 'telemetry',
+      id: 'alice-0001',
+      fps: 59,
+      rttMs: 42,
+      state: 'hacked',
+      region: 'China',
+      updatedAt: 123,
+    })).toBeNull();
+  });
+
+  it('preserves normalized telemetry in welcome and channel snapshots', () => {
+    const player = {
+      id: 'alice-0001',
+      name: 'Alice',
+      avatarId: null,
+      pose: { x: 2, y: 1, z: -3, yaw: 0.5, moving: false },
+      telemetry: {
+        fps: 999,
+        rttMs: 42,
+        state: 'playing',
+        region: 'China',
+        updatedAt: 123,
+      },
+    };
+    expect(parseLobbyMultiplayerMessage({
+      type: 'welcome',
+      selfId: 'alice-0001',
+      channel: 'lobby:2048',
+      players: [player],
+    })).toMatchObject({
+      type: 'welcome',
+      players: [{
+        id: 'alice-0001',
+        telemetry: {
+          fps: 240,
+          rttMs: 42,
+          state: 'playing',
+          region: 'China',
+          updatedAt: 123,
+        },
+      }],
+    });
+    expect(parseLobbyMultiplayerMessage({
+      type: 'channel_snapshot',
+      channel: 'lobby:2048',
+      players: [player],
+    })).toMatchObject({
+      type: 'channel_snapshot',
+      players: [{ id: 'alice-0001', telemetry: { fps: 240 } }],
     });
   });
 
@@ -297,6 +481,231 @@ describe('lobby multiplayer protocol', () => {
 });
 
 describe('vehicle lease multiplayer protocol', () => {
+  it('routes every multiplayer event through the single telemetry controller', () => {
+    const multiplayer = multiplayerHarness();
+    const telemetry = multiplayer.telemetry;
+    const player = {
+      id: 'self-0001',
+      name: 'Self',
+      avatarId: null,
+      x: 0,
+      y: 0,
+      z: 0,
+      yaw: 0,
+      moving: false,
+      telemetry: {
+        fps: 60,
+        rttMs: 30,
+        state: 'online',
+        region: 'China',
+        updatedAt: 1,
+      },
+    };
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'welcome',
+      selfId: 'self-0001',
+      channel: 'lobby:0000',
+      players: [player],
+    }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({ type: 'join', player }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'pose', id: 'self-0001', x: 1, y: 0, z: 0, yaw: 0, moving: true,
+    }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'pose', id: 'self-0001', x: 1, y: 0, z: 0, yaw: 0, moving: false,
+    }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'profile', id: 'self-0001', name: 'Renamed', avatarId: null,
+    }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'telemetry', id: 'self-0001', fps: 59, rttMs: 42,
+      state: 'moving', region: 'China', updatedAt: 123,
+    }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({ type: 'telemetry_pong', nonce: 7 }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'vehicle_claimed', vehicle: vehicleSnapshot({ driverId: 'self-0001' }),
+    }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'vehicle_state', vehicle: vehicleSnapshot({ driverId: 'self-0001', seq: 8 }),
+    }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'vehicle_released', reason: 'exit', driverId: 'self-0001',
+      vehicle: vehicleSnapshot({ driverId: null, seq: 9 }),
+    }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'party_launch',
+      partyId: 'party-12345678-1234-4234-8234-123456789abc',
+      levelId: 'skyline-relay-official',
+      levelVersion: 'builtin:1:skyline-relay-official',
+    }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({ type: 'leave', id: 'alice-0001' }));
+    multiplayer.handleMessage(parseLobbyMultiplayerMessage({
+      type: 'channel_snapshot', channel: 'lobby:0000', players: [player],
+    }));
+
+    expect(telemetry.connect).toHaveBeenNthCalledWith(1, 'self-0001', 'lobby:0000', [expect.objectContaining({
+      id: 'self-0001', telemetry: expect.objectContaining({ fps: 60 }),
+    })]);
+    expect(telemetry.connect).toHaveBeenNthCalledWith(2, 'self-0001', 'lobby:0000', [expect.any(Object)]);
+    expect(telemetry.playerJoined).toHaveBeenCalledWith(expect.objectContaining({ id: 'self-0001' }));
+    expect(telemetry.updateActivity).toHaveBeenCalledWith('self-0001', 'moving');
+    expect(telemetry.updateActivity).toHaveBeenCalledWith('self-0001', 'online');
+    expect(telemetry.updateProfile).toHaveBeenCalledWith('self-0001', 'Renamed');
+    expect(telemetry.receive).toHaveBeenCalledWith('self-0001', expect.objectContaining({ fps: 59 }));
+    expect(telemetry.handlePong).toHaveBeenCalledWith(7);
+    expect(telemetry.updateActivity).toHaveBeenCalledWith('self-0001', 'driving');
+    expect(telemetry.setLocalActivity).toHaveBeenCalledWith('playing');
+    expect(telemetry.playerLeft).toHaveBeenCalledWith('alice-0001');
+  });
+
+  it('samples frames, tracks visibility, and stops telemetry on disconnect', () => {
+    const multiplayer = multiplayerHarness();
+    const documentListeners = new Map<string, EventListener>();
+    const fakeDocument = {
+      hidden: true,
+      addEventListener: vi.fn((type: string, listener: EventListener) => documentListeners.set(type, listener)),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (documentListeners.get(type) === listener) documentListeners.delete(type);
+      }),
+    };
+    vi.stubGlobal('document', fakeDocument);
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1_234);
+    multiplayer.update(0.1, 10, { x: 0, y: 0, z: 0, yaw: 0, moving: true });
+    expect(multiplayer.telemetry.recordFrame).toHaveBeenCalledWith(1_234);
+    expect(multiplayer.telemetry.setLocalActivity).toHaveBeenCalledWith('moving');
+
+    multiplayer.handleVisibilityChange();
+    expect(multiplayer.telemetry.setLocalActivity).toHaveBeenLastCalledWith('away');
+    fakeDocument.hidden = false;
+    multiplayer.handleVisibilityChange();
+    expect(multiplayer.telemetry.setLocalActivity).toHaveBeenLastCalledWith('moving');
+
+    multiplayer.visibilityListening = true;
+    multiplayer.socket.readyState = 2;
+    multiplayer.disconnect(false);
+    expect(multiplayer.telemetry.stop).toHaveBeenCalledOnce();
+    expect(fakeDocument.removeEventListener).toHaveBeenCalledWith(
+      'visibilitychange',
+      multiplayer.visibilityListener,
+    );
+    now.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('sends telemetry only through whichever multiplayer socket is currently owned', () => {
+    vi.useFakeTimers();
+    try {
+      const multiplayer = multiplayerHarness();
+      const firstSocket = multiplayer.socket;
+      const telemetry = multiplayer.createTelemetryController();
+      telemetry.connect('self-0001', 'lobby:0000', []);
+      vi.advanceTimersByTime(2_000);
+      expect(firstSocket.send).toHaveBeenCalledOnce();
+      expect(JSON.parse(String(firstSocket.send.mock.calls[0]?.[0]))).toEqual({
+        type: 'telemetry_ping', nonce: 1,
+      });
+
+      const secondSocket = { readyState: 1, send: vi.fn() };
+      multiplayer.socket = secondSocket;
+      vi.advanceTimersByTime(2_000);
+      expect(firstSocket.send).toHaveBeenCalledOnce();
+      expect(secondSocket.send).toHaveBeenCalledOnce();
+      expect(JSON.parse(String(secondSocket.send.mock.calls[0]?.[0]))).toEqual({
+        type: 'telemetry_ping', nonce: 2,
+      });
+      telemetry.stop();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores stale socket callbacks and cleans telemetry before reconnecting', () => {
+    vi.useFakeTimers();
+    const sockets: FakeSocket[] = [];
+    class FakeSocket {
+      public static readonly OPEN = 1;
+      public static readonly CLOSING = 2;
+      public readyState = 0;
+      public readonly send = vi.fn();
+      private readonly listeners = new Map<string, Array<(event: MessageEvent) => void>>();
+
+      public constructor() {
+        sockets.push(this);
+      }
+
+      public addEventListener(type: string, listener: (event: MessageEvent) => void): void {
+        const listeners = this.listeners.get(type) ?? [];
+        listeners.push(listener);
+        this.listeners.set(type, listeners);
+      }
+
+      public emit(type: string, event = {} as MessageEvent): void {
+        for (const listener of this.listeners.get(type) ?? []) listener(event);
+      }
+
+      public close(): void {
+        this.readyState = 3;
+        this.emit('close');
+      }
+    }
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+    vi.stubGlobal('WebSocket', FakeSocket);
+    vi.stubGlobal('window', {
+      setTimeout,
+      clearTimeout,
+    });
+    vi.stubGlobal('document', {
+      baseURI: 'https://white.example/',
+      hidden: false,
+      addEventListener,
+      removeEventListener,
+    });
+    const multiplayer = multiplayerHarness();
+    Object.assign(multiplayer, {
+      socket: null,
+      reconnectAttempt: 0,
+      profileRevision: 0,
+      connectionProfileRevision: 0,
+      lastProfileSentAt: Number.NEGATIVE_INFINITY,
+    });
+
+    try {
+      multiplayer.connect();
+      const first = sockets[0]!;
+      first.readyState = FakeSocket.OPEN;
+      first.emit('open');
+      expect(multiplayer.telemetry.connect).toHaveBeenCalledOnce();
+      expect(addEventListener).toHaveBeenCalledWith('visibilitychange', multiplayer.visibilityListener);
+
+      multiplayer.connectionEpoch += 1;
+      Object.assign(multiplayer, { socket: null, visibilityListening: false });
+      first.emit('close');
+      expect(multiplayer.telemetry.stop).not.toHaveBeenCalled();
+
+      multiplayer.connect();
+      const second = sockets[1]!;
+      second.readyState = FakeSocket.OPEN;
+      second.emit('open');
+      second.emit('close');
+      expect(multiplayer.telemetry.stop).toHaveBeenCalledOnce();
+      expect(removeEventListener).toHaveBeenCalledWith('visibilitychange', multiplayer.visibilityListener);
+      expect(multiplayer.reconnectTimer).not.toBe(0);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('owns one native multiplayer connection without replacing the global WebSocket', () => {
+    const source = readFileSync(new URL('./lobby-multiplayer.ts', import.meta.url), 'utf8');
+    expect(source.match(/new WebSocket\s*\(/gu)).toHaveLength(1);
+    expect(source).not.toMatch(/window\.WebSocket\s*=/u);
+    expect(source).not.toMatch(/class\s+\w+\s+extends\s+WebSocket/u);
+  });
+
   it('recovers rejected ownership or motion but tolerates a single stale sequence', () => {
     expect(vehicleErrorRequiresRecovery('vehicle_lease_rejected')).toBe(true);
     expect(vehicleErrorRequiresRecovery('vehicle_state_rejected')).toBe(true);

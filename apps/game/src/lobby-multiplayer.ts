@@ -17,6 +17,14 @@ import {
 import type { Collider } from './types';
 import { LOBBY_WORLD_LIMIT } from './lobby-neighborhood';
 import type { LobbyVehicleCapability } from './lobby-props/types';
+import {
+  PlayerTelemetryController,
+  detectPlayerRegion,
+  normalizePlayerTelemetry,
+  renderPlayerStats,
+  type PlayerActivity,
+  type PlayerTelemetry,
+} from './player-telemetry';
 
 const CLIENT_ID_KEY = 'wr.lobby.client.v1';
 const DEFAULT_IDLE_URL = '/generated-assets/whiteroom-default-avatar-idle.glb';
@@ -165,6 +173,7 @@ export function serializeMultiplayerPose(pose: LobbyPose, levelMode: boolean): L
 
 export interface LobbyPlayerSnapshot extends AvatarProfile, LobbyPose {
   id: string;
+  telemetry?: PlayerTelemetry;
 }
 
 export interface LobbyPartyInvite {
@@ -278,6 +287,8 @@ type MultiplayerMessage =
   | { type: 'join'; player: LobbyPlayerSnapshot; online: number | null }
   | { type: 'pose'; player: LobbyPlayerSnapshot }
   | { type: 'profile'; id: string; name: string; avatarId: string }
+  | { type: 'telemetry'; id: string; telemetry: PlayerTelemetry }
+  | { type: 'telemetry_pong'; nonce: number }
   | { type: 'error'; code: string; retryAfterMs: number | null }
   | { type: 'leave'; id: string; online: number | null }
   | { type: 'party_invite'; invite: LobbyPartyInvite }
@@ -699,6 +710,9 @@ function playerFrom(value: unknown, fallbackId?: string): LobbyPlayerSnapshot | 
   const position = recordOf(record.pose) ?? recordOf(record.position) ?? record;
   const seq = finite(position.seq ?? record.seq, Number.NaN);
   const timestamp = finite(position.timestamp ?? record.timestamp, Number.NaN);
+  const telemetry = Object.hasOwn(record, 'telemetry')
+    ? normalizePlayerTelemetry(record.telemetry)
+    : undefined;
   return {
     id: idValue,
     name: sanitizeNickname(record.name),
@@ -710,6 +724,7 @@ function playerFrom(value: unknown, fallbackId?: string): LobbyPlayerSnapshot | 
     moving: (position.moving ?? record.moving) === true,
     ...(Number.isFinite(seq) ? { seq } : {}),
     ...(Number.isFinite(timestamp) ? { timestamp } : {}),
+    ...(telemetry ? { telemetry } : {}),
   };
 }
 
@@ -729,6 +744,31 @@ export function parseLobbyMultiplayerMessage(value: unknown): MultiplayerMessage
   }
   const record = recordOf(parsed);
   if (!record || typeof record.type !== 'string') return null;
+  if (record.type === 'telemetry') {
+    if (!exactKeys(record, new Set(['type', 'id', 'fps', 'rttMs', 'state', 'region', 'updatedAt']))) return null;
+    if (
+      !validClientId(record.id)
+      || typeof record.fps !== 'number'
+      || !Number.isFinite(record.fps)
+      || typeof record.rttMs !== 'number'
+      || !Number.isFinite(record.rttMs)
+      || typeof record.state !== 'string'
+      || typeof record.region !== 'string'
+      || typeof record.updatedAt !== 'number'
+      || !Number.isFinite(record.updatedAt)
+    ) return null;
+    const telemetry = normalizePlayerTelemetry(record);
+    if (telemetry.state !== record.state) return null;
+    return { type: 'telemetry', id: record.id, telemetry };
+  }
+  if (record.type === 'telemetry_pong') {
+    if (
+      !exactKeys(record, new Set(['type', 'nonce']))
+      || !Number.isSafeInteger(record.nonce)
+      || (record.nonce as number) < 1
+    ) return null;
+    return { type: 'telemetry_pong', nonce: record.nonce as number };
+  }
   if (record.type === 'welcome') {
     const features = Object.hasOwn(record, 'features') ? featureListFrom(record.features) : undefined;
     const vehicles = Object.hasOwn(record, 'vehicles') ? vehicleListFrom(record.vehicles) : undefined;
@@ -1095,6 +1135,9 @@ export class LobbyMultiplayer {
   private selfActor: AvatarActor;
   private selfId: string;
   private socket: WebSocket | null = null;
+  private readonly telemetry = this.createTelemetryController();
+  private visibilityListening = false;
+  private readonly visibilityListener = (): void => this.handleVisibilityChange();
   private disconnecting = false;
   private reconnectTimer = 0;
   private reconnectAttempt = 0;
@@ -1253,6 +1296,7 @@ export class LobbyMultiplayer {
     this.channel = lobbyChannelProtocolName(this.lobbyChannel);
     this.partyState = null;
     this.partyInvite = null;
+    this.telemetry.setLocalActivity('online');
     this.onPartyState?.(null);
     this.onPartyInvite?.(null);
   }
@@ -1340,9 +1384,11 @@ export class LobbyMultiplayer {
   public setLevelMode(active: boolean): void {
     this.levelMode = active;
     if (active) this.selfActor.group.visible = false;
+    if (this.active) this.telemetry.setLocalActivity(this.currentTelemetryActivity());
   }
 
   public update(dt: number, elapsed: number, pose: LobbyPose): void {
+    const wasMoving = this.lastSelfPose.moving;
     this.lastSelfPose = { ...pose };
     if (this.currentCameraDistance !== this.targetCameraDistance) {
       const alpha = this.reducedMotion ? 1 : 1 - Math.exp(-THIRD_PERSON_ZOOM_DAMPING * Math.max(0, finite(dt)));
@@ -1352,9 +1398,13 @@ export class LobbyMultiplayer {
       }
     }
     if (!this.active) return;
+    this.telemetry.recordFrame(performance.now());
 
     const selfPosition = new THREE.Vector3(pose.x, pose.y, pose.z);
     const selfDriving = this.selfOccupiesVehicle();
+    if (!selfDriving && pose.moving !== wasMoving) {
+      this.telemetry.setLocalActivity(this.currentTelemetryActivity());
+    }
     this.selfActor.current.copy(selfPosition);
     this.selfActor.target.copy(selfPosition);
     this.selfActor.currentYaw = pose.yaw;
@@ -1506,6 +1556,42 @@ export class LobbyMultiplayer {
     }
   }
 
+  private createTelemetryController(): PlayerTelemetryController {
+    return new PlayerTelemetryController({
+      send: (payload) => {
+        const socket = this.socket;
+        if (socket?.readyState === WebSocket.OPEN) socket.send(payload);
+      },
+      render: renderPlayerStats,
+      now: () => performance.now(),
+      region: detectPlayerRegion,
+    });
+  }
+
+  private currentTelemetryActivity(): PlayerActivity {
+    if (this.selfOccupiesVehicle()) return 'driving';
+    if (this.lastSelfPose.moving) return 'moving';
+    if (this.levelMode || this.channel.startsWith('level:')) return 'playing';
+    return 'online';
+  }
+
+  private handleVisibilityChange(): void {
+    this.telemetry.setLocalActivity(document.hidden ? 'away' : this.currentTelemetryActivity());
+  }
+
+  private addVisibilityListener(): void {
+    if (this.visibilityListening) return;
+    this.visibilityListening = true;
+    document.addEventListener('visibilitychange', this.visibilityListener);
+    this.handleVisibilityChange();
+  }
+
+  private removeVisibilityListener(): void {
+    if (!this.visibilityListening) return;
+    this.visibilityListening = false;
+    document.removeEventListener('visibilitychange', this.visibilityListener);
+  }
+
   private connect(): void {
     if (!this.active || this.socket || this.reconnectTimer || this.disconnecting) return;
     const epoch = ++this.connectionEpoch;
@@ -1532,6 +1618,8 @@ export class LobbyMultiplayer {
       this.reconnectAttempt = 0;
       this.lastPoseSentAt = Number.NEGATIVE_INFINITY;
       this.lastProfileSentAt = Number.NEGATIVE_INFINITY;
+      this.telemetry.connect(this.selfId, this.channel, []);
+      this.addVisibilityListener();
       if (this.profileRevision !== this.connectionProfileRevision) {
         this.pendingProfile = { ...this.profile };
         this.scheduleProfileSync();
@@ -1548,6 +1636,8 @@ export class LobbyMultiplayer {
       this.clearProfileSync();
       this.connected = false;
       this.serverOnline = null;
+      this.removeVisibilityListener();
+      this.telemetry.stop();
       this.clearPeers();
       this.clearVehicleSession(true);
       this.refreshHud();
@@ -1563,6 +1653,8 @@ export class LobbyMultiplayer {
     if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = 0;
     this.clearProfileSync();
+    this.removeVisibilityListener();
+    this.telemetry.stop();
     const socket = this.socket;
     this.socket = null;
     if (socket && socket.readyState < WebSocket.CLOSING) {
@@ -1633,6 +1725,7 @@ export class LobbyMultiplayer {
       this.selfId = message.selfId ?? this.clientId;
       this.channel = message.channel;
       this.serverOnline = message.online;
+      this.telemetry.connect(this.selfId, this.channel, message.players);
       this.clearPeers();
       const selfPlayer = message.players.find((player) => player.id === this.selfId || player.id === this.clientId);
       const changedWhileConnecting = this.profileRevision !== this.connectionProfileRevision;
@@ -1652,15 +1745,22 @@ export class LobbyMultiplayer {
       this.localVehicleLease = null;
       this.replaceVehicleSnapshot(message.vehicles ?? []);
     } else if (message.type === 'join') {
+      this.telemetry.playerJoined(message.player);
       if (message.player.id !== this.selfId && message.player.id !== this.clientId) this.upsertPeer(message.player, true);
       this.serverOnline = message.online;
     } else if (message.type === 'pose') {
+      this.telemetry.updateActivity(message.player.id, message.player.moving ? 'moving' : 'online');
       if (message.player.id !== this.selfId && message.player.id !== this.clientId) this.upsertPeer(message.player, false);
     } else if (message.type === 'profile') {
+      this.telemetry.updateProfile(message.id, message.name);
       if (message.id !== this.selfId && message.id !== this.clientId) {
         const actor = this.peers.get(message.id);
         if (actor) this.updateActorProfile(actor, { name: message.name, avatarId: message.avatarId });
       }
+    } else if (message.type === 'telemetry') {
+      this.telemetry.receive(message.id, message.telemetry);
+    } else if (message.type === 'telemetry_pong') {
+      this.telemetry.handlePong(message.nonce);
     } else if (message.type === 'error') {
       if (message.code === 'profile_rate_limited') {
         this.pendingProfile = { ...this.profile };
@@ -1672,13 +1772,16 @@ export class LobbyMultiplayer {
       if (message.vehicle.driverId === this.selfId || message.vehicle.driverId === this.clientId) {
         this.localVehicleLease = { objectId: message.vehicle.objectId, leaseId: message.leaseId };
       }
+      if (message.vehicle.driverId) this.telemetry.updateActivity(message.vehicle.driverId, 'driving');
       this.upsertVehicle(message.vehicle, true);
       this.onVehicleEvent?.({ type: 'entered', leaseId: message.leaseId, vehicle: structuredClone(message.vehicle) });
     } else if (message.type === 'vehicle_claimed') {
+      if (message.vehicle.driverId) this.telemetry.updateActivity(message.vehicle.driverId, 'driving');
       this.upsertVehicle(message.vehicle, true);
       this.onVehicleEvent?.({ type: 'claimed', vehicle: structuredClone(message.vehicle) });
     } else if (message.type === 'vehicle_state') {
       if (this.upsertVehicle(message.vehicle, false)) {
+        if (message.vehicle.driverId) this.telemetry.updateActivity(message.vehicle.driverId, 'driving');
         this.onVehicleEvent?.({ type: 'state', vehicle: structuredClone(message.vehicle) });
       }
     } else if (message.type === 'vehicle_recovery') {
@@ -1700,6 +1803,10 @@ export class LobbyMultiplayer {
         || message.driverId === this.clientId
         || this.localVehicleLease?.objectId === message.vehicle.objectId
       ) this.localVehicleLease = null;
+      this.telemetry.updateActivity(
+        message.driverId,
+        this.channel.startsWith('level:') ? 'playing' : 'online',
+      );
       this.upsertVehicle(message.vehicle, true);
       this.onVehicleEvent?.({
         type: 'released',
@@ -1710,6 +1817,7 @@ export class LobbyMultiplayer {
     } else if (message.type === 'vehicle_snapshot') {
       this.replaceVehicleSnapshot(message.vehicles);
     } else if (message.type === 'leave') {
+      this.telemetry.playerLeft(message.id);
       this.removePeer(message.id);
       this.serverOnline = message.online;
     } else if (message.type === 'party_invite') {
@@ -1727,6 +1835,7 @@ export class LobbyMultiplayer {
       this.channel = `level:${message.launch.partyId}`;
       this.partyInvite = null;
       this.partyState = null;
+      this.telemetry.setLocalActivity('playing');
       this.onPartyInvite?.(null);
       this.onPartyState?.(null);
       this.onPartyLaunch?.(message.launch);
@@ -1736,6 +1845,7 @@ export class LobbyMultiplayer {
       if (this.activePartyId === message.partyId) {
         this.activePartyId = null;
         this.channel = lobbyChannelProtocolName(this.lobbyChannel);
+        this.telemetry.setLocalActivity('online');
       }
       this.onPartyInvite?.(this.partyInvite ? structuredClone(this.partyInvite) : null);
       this.onPartyState?.(this.partyState ? structuredClone(this.partyState) : null);
@@ -1743,6 +1853,7 @@ export class LobbyMultiplayer {
     } else if (message.type === 'channel_snapshot') {
       this.channel = message.channel;
       this.serverOnline = message.online;
+      this.telemetry.connect(this.selfId, this.channel, message.players);
       this.clearPeers();
       for (const player of message.players.slice(0, MAX_PEERS)) {
         if (player.id === this.selfId || player.id === this.clientId) continue;
