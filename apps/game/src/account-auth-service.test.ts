@@ -200,11 +200,21 @@ describe('AccountAuthService', () => {
     await service.sendRecoveryEmail('player@example.com', 'https://altverse.fun/?password_reset=1');
     await service.updateRecoveredPassword('recovery-secret', 'new-password');
     expect(updateUser).toHaveBeenCalledWith({ password: 'register-password' });
+    expect(fetchImpl.mock.calls[1]).toEqual([expect.any(URL), { method: 'POST', headers: { Accept: 'application/json', apikey: enabledConfig.publishableKey, Authorization: `Bearer ${enabledConfig.publishableKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'player@example.com' }), credentials: 'omit', cache: 'no-store' }]);
     expect(fetchImpl.mock.calls[1]![0].toString()).toBe('https://project-ref.supabase.co/auth/v1/recover?redirect_to=https%3A%2F%2Faltverse.fun%2F%3Fpassword_reset%3D1');
-    expect(fetchImpl.mock.calls[1]![1]).toMatchObject({ method: 'POST', credentials: 'omit', cache: 'no-store', body: JSON.stringify({ email: 'player@example.com' }) });
-    expect(fetchImpl.mock.calls[2]![1]).toMatchObject({ method: 'PUT', credentials: 'omit', cache: 'no-store', body: JSON.stringify({ password: 'new-password' }), headers: expect.objectContaining({ Authorization: 'Bearer recovery-secret' }) });
+    expect(fetchImpl.mock.calls[2]).toEqual([expect.any(URL), { method: 'PUT', headers: { Accept: 'application/json', apikey: enabledConfig.publishableKey, Authorization: 'Bearer recovery-secret', 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'new-password' }), credentials: 'omit', cache: 'no-store' }]);
+    expect(fetchImpl.mock.calls[2]![0].toString()).toBe('https://project-ref.supabase.co/auth/v1/user');
     const failing = new AccountAuthService({ fetchImpl: vi.fn().mockResolvedValueOnce(configResponse()).mockResolvedValueOnce(new Response(JSON.stringify({ code: 'unknown', token: 'private' }), { status: 400 })) });
     await expect(failing.sendRecoveryEmail('player@example.com', 'https://altverse.fun/')).rejects.toThrow('重置邮件发送失败，请稍后重试。');
+  });
+
+  it('does not call a recovery endpoint for disabled config and redacts SDK password errors', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ enabled: false, provider: 'email' }), { status: 200 }));
+    const disabled = new AccountAuthService({ fetchImpl });
+    await expect(disabled.sendRecoveryEmail('player@example.com', 'https://altverse.fun/')).rejects.toThrow('账号登录功能未启用');
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    const service = new AccountAuthService({ fetchImpl: vi.fn(async () => configResponse()), createClientImpl: () => ({ auth: { updateUser: async () => ({ error: new Error('provider-secret') }) } }) as never });
+    await expect(service.setPassword('password-secret')).rejects.toThrow('密码更新失败，请稍后重试。');
   });
 
   it.each([
