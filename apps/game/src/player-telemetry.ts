@@ -74,7 +74,7 @@ function sanitizeText(value: unknown, fallback: string, maximum: number): string
   const withoutControls = [...value]
     .filter((character) => {
       const codePoint = character.codePointAt(0) ?? 0;
-      return codePoint >= 0x20 && codePoint !== 0x7f;
+      return codePoint >= 0x20 && (codePoint < 0x7f || codePoint > 0x9f);
     })
     .join('')
     .trim();
@@ -319,7 +319,7 @@ export class PlayerTelemetryController {
     if (!Number.isFinite(now)) return;
     if (this.frameStartedAt === null || now < this.frameStartedAt) {
       this.frameStartedAt = now;
-      this.frameCount = 1;
+      this.frameCount = 0;
       return;
     }
     this.frameCount += 1;

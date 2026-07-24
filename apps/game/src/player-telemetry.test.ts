@@ -97,6 +97,27 @@ describe('player telemetry', () => {
     });
   });
 
+  it('removes C0, DEL, and C1 controls while preserving printable Unicode boundaries', () => {
+    expect(normalizePlayerTelemetry({
+      region: '\u001f A\u007fB\u0080C\u009fD\u00a0E ',
+    }).region).toBe('ABCD\u00a0E');
+    expect(normalizePlayerTelemetry({
+      region: '\u0080\u009f',
+    }).region).toBe('Unknown');
+    expect(normalizePlayerTelemetry({
+      region: '\u{1f642}'.repeat(30),
+    }).region).toBe('\u{1f642}'.repeat(24));
+
+    const harness = createHarness();
+    harness.controller.connect('self-0001', 'lobby:0000', [
+      player('self-0001', '\u007fA\u0080B\u009fC\u00a0D'),
+    ]);
+    expect(harness.controller.getState().players[0]?.name).toBe('ABC\u00a0D');
+    harness.controller.updateProfile('self-0001', `\u0080${'\u{1f642}'.repeat(30)}\u009f`);
+    expect(harness.controller.getState().players[0]?.name).toBe('\u{1f642}'.repeat(24));
+    harness.controller.stop();
+  });
+
   it('treats hostile property access as malformed telemetry', () => {
     const hostile = new Proxy({}, {
       get() {
@@ -228,16 +249,47 @@ describe('player telemetry', () => {
     harness.controller.stop();
   });
 
-  it('measures frame rate over a stable window and clamps burst samples', () => {
+  it('measures exact frame intervals without endpoint overcount or consecutive-window drift', () => {
     const harness = createHarness();
     harness.controller.connect('self-0001', 'lobby:0000', [player('self-0001', 'Self')]);
     harness.controller.recordFrame(1_000);
-    for (let frame = 1; frame <= 9; frame += 1) {
+    for (let frame = 1; frame <= 8; frame += 1) {
       harness.controller.recordFrame(1_000 + frame * 100);
     }
-    expect(harness.controller.getState().players[0]?.fps).toBe(11);
+    expect(harness.controller.getState().players[0]?.fps).toBe(10);
+    for (let frame = 1; frame <= 8; frame += 1) {
+      harness.controller.recordFrame(1_800 + frame * 100);
+    }
+    expect(harness.controller.getState().players[0]?.fps).toBe(10);
 
+    harness.controller.stop();
+  });
+
+  it('measures approximately sixty FPS and resets cleanly after a backward timestamp', () => {
+    const harness = createHarness();
+    harness.controller.connect('self-0001', 'lobby:0000', [player('self-0001', 'Self')]);
     harness.controller.recordFrame(2_000);
+    for (let frame = 1; frame <= 48; frame += 1) {
+      harness.controller.recordFrame(2_000 + frame * (1_000 / 60));
+    }
+    expect(harness.controller.getState().players[0]?.fps).toBe(60);
+
+    harness.controller.recordFrame(3_000);
+    harness.controller.recordFrame(3_100);
+    harness.controller.recordFrame(1_500);
+    for (let frame = 1; frame <= 8; frame += 1) {
+      harness.controller.recordFrame(1_500 + frame * 100);
+    }
+    expect(harness.controller.getState().players[0]?.fps).toBe(10);
+
+    harness.controller.stop();
+  });
+
+  it('clamps burst frame samples', () => {
+    const harness = createHarness();
+    harness.controller.connect('self-0001', 'lobby:0000', [player('self-0001', 'Self')]);
+    harness.controller.recordFrame(2_000);
+
     for (let frame = 1; frame <= 800; frame += 1) {
       harness.controller.recordFrame(2_000 + frame);
     }
