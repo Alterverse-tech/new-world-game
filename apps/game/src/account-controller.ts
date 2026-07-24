@@ -6,6 +6,8 @@ import {
   type AccountLoginPort,
   type AccountLoginState,
 } from './account-login-flow';
+import { AccountRegistrationFlow, type AccountRegistrationState } from './account-registration-flow';
+import { AccountRecoveryFlow, type AccountRecoveryState } from './account-recovery-flow';
 
 export { authRedirectUrl, parseAuthConfig } from './account-auth-service';
 
@@ -172,10 +174,38 @@ export class AccountController {
   private readonly dialogLoginButton = byId<HTMLButtonElement>('account-login-btn');
   private readonly authCloseButton = byId<HTMLButtonElement>('account-auth-close');
   private readonly authMessage = byId<HTMLElement>('account-auth-message');
+  private readonly registerDialog = byId<HTMLDialogElement>('account-register-dialog');
+  private readonly registerForm = byId<HTMLFormElement>('account-register-form');
+  private readonly registerEmail = byId<HTMLInputElement>('account-register-email');
+  private readonly registerPassword = byId<HTMLInputElement>('account-register-password');
+  private readonly registerConfirmation = byId<HTMLInputElement>('account-register-password-confirm');
+  private readonly registerCode = byId<HTMLInputElement>('account-register-code');
+  private readonly registerDetails = byId<HTMLElement>('account-register-details');
+  private readonly registerVerify = byId<HTMLElement>('account-register-verify');
+  private readonly registerMessage = byId<HTMLElement>('account-register-message');
+  private readonly registerSubmit = byId<HTMLButtonElement>('account-register-submit');
+  private readonly registerClose = byId<HTMLButtonElement>('account-register-close');
+  private readonly registerResend = byId<HTMLButtonElement>('account-register-resend');
+  private readonly registerExisting = byId<HTMLButtonElement>('account-register-have-code');
+  private readonly registerOpen = byId<HTMLButtonElement>('account-register-btn');
+  private readonly recoveryDialog = byId<HTMLDialogElement>('account-reset-dialog');
+  private readonly recoveryForm = byId<HTMLFormElement>('account-reset-form');
+  private readonly recoveryEmail = byId<HTMLInputElement>('account-reset-email');
+  private readonly recoveryPassword = byId<HTMLInputElement>('account-reset-password');
+  private readonly recoveryConfirmation = byId<HTMLInputElement>('account-reset-password-confirm');
+  private readonly recoveryEmailPanel = byId<HTMLElement>('account-reset-email-panel');
+  private readonly recoveryPasswordPanel = byId<HTMLElement>('account-reset-password-panel');
+  private readonly recoveryMessage = byId<HTMLElement>('account-reset-message');
+  private readonly recoverySubmit = byId<HTMLButtonElement>('account-reset-submit');
+  private readonly recoveryClose = byId<HTMLButtonElement>('account-reset-close');
+  private readonly recoveryBack = byId<HTMLButtonElement>('account-reset-back');
+  private readonly recoveryOpen = byId<HTMLButtonElement>('account-reset-open');
   private readonly startButton = byId<HTMLButtonElement>('start-btn');
   private readonly assetNote = byId<HTMLElement>('lobby-asset-account-note');
   private readonly authService: AccountAuthService;
   private readonly loginFlow: AccountLoginFlow;
+  private readonly registrationFlow: AccountRegistrationFlow;
+  private readonly recoveryFlow: AccountRecoveryFlow;
   private client: SupabaseClient | null = null;
   private currentUser: User | null = null;
   private profileRow: ProfileRow | null = null;
@@ -193,7 +223,7 @@ export class AccountController {
     message: '正在检查账号',
   };
 
-  constructor(authService = new AccountAuthService()) {
+  constructor(authService = new AccountAuthService(), recoveryHash: string | null = null) {
     this.authService = authService;
     this.loginFlow = new AccountLoginFlow({
       port: this.createLoginPort(),
@@ -206,6 +236,8 @@ export class AccountController {
         window.location.reload();
       },
     });
+    this.registrationFlow = new AccountRegistrationFlow({ port: this.createRegistrationPort(), service: this.authService, storage: browserStoragePort(sessionStorage), now: Date.now, redirectTo: authRedirectUrl(window.location), reload: () => window.location.reload() });
+    this.recoveryFlow = new AccountRecoveryFlow({ port: this.createRecoveryPort(), service: this.authService });
     this.loginOpenButton.addEventListener('click', () => this.openAuthDialog());
     this.signoutButton.addEventListener('click', () => void this.signOut());
     this.settingsAction.addEventListener('click', () => {
@@ -234,6 +266,18 @@ export class AccountController {
       event.preventDefault();
       this.closeAuthDialog();
     });
+    this.registerOpen.addEventListener('click', () => { this.closeAuthDialog(true); this.registrationFlow.open(this.emailInput.value); this.registerDialog.showModal(); });
+    this.registerForm.addEventListener('submit', (event) => { event.preventDefault(); void this.registrationFlow.submit(); });
+    this.registerResend.addEventListener('click', () => void this.registrationFlow.resend());
+    this.registerExisting.addEventListener('click', () => this.registrationFlow.useExistingCode());
+    this.registerClose.addEventListener('click', () => { this.registrationFlow.cancel(); this.registerDialog.close(); });
+    this.registerDialog.addEventListener('cancel', (event) => { event.preventDefault(); this.registrationFlow.cancel(); this.registerDialog.close(); });
+    this.recoveryOpen.addEventListener('click', () => { this.closeAuthDialog(true); this.recoveryFlow.open(this.emailInput.value); this.recoveryDialog.showModal(); });
+    this.recoveryForm.addEventListener('submit', (event) => { event.preventDefault(); void (this.recoveryFlow.getState().mode === 'email' ? this.recoveryFlow.sendEmail(new URL('/?password_reset=1', window.location.origin).href) : this.recoveryFlow.updatePassword()); });
+    this.recoveryClose.addEventListener('click', () => { this.recoveryFlow.cancel(); this.recoveryDialog.close(); });
+    this.recoveryBack.addEventListener('click', () => { this.recoveryFlow.cancel(); this.recoveryDialog.close(); });
+    this.recoveryDialog.addEventListener('cancel', (event) => { event.preventDefault(); this.recoveryFlow.cancel(); this.recoveryDialog.close(); });
+    if (recoveryHash) { this.recoveryFlow.openRecovery(recoveryHash); this.recoveryDialog.showModal(); }
     this.render();
   }
 
@@ -391,6 +435,11 @@ export class AccountController {
       focusToken: () => this.otpInput.focus(),
     };
   }
+
+  private createRegistrationPort() { return { readEmail: () => this.registerEmail.value, readPassword: () => this.registerPassword.value, readConfirmation: () => this.registerConfirmation.value, readToken: () => this.registerCode.value, clearSecrets: () => { this.registerPassword.value = ''; this.registerConfirmation.value = ''; this.registerCode.value = ''; }, focusEmail: () => this.registerEmail.focus(), focusPassword: () => this.registerPassword.focus(), focusConfirmation: () => this.registerConfirmation.focus(), focusToken: () => this.registerCode.focus(), render: (state: AccountRegistrationState) => this.renderRegistrationFlow(state) }; }
+  private createRecoveryPort() { return { readEmail: () => this.recoveryEmail.value, readPassword: () => this.recoveryPassword.value, readConfirmation: () => this.recoveryConfirmation.value, clearSecrets: () => { this.recoveryPassword.value = ''; this.recoveryConfirmation.value = ''; }, focusEmail: () => this.recoveryEmail.focus(), focusPassword: () => this.recoveryPassword.focus(), focusConfirmation: () => this.recoveryConfirmation.focus(), render: (state: AccountRecoveryState) => this.renderRecoveryFlow(state) }; }
+  private renderRegistrationFlow(state: AccountRegistrationState): void { const verify = state.stage === 'verify'; this.registerDetails.hidden = verify || state.stage === 'complete'; this.registerVerify.hidden = !verify; this.registerEmail.disabled = state.busy; this.registerPassword.disabled = state.busy; this.registerConfirmation.disabled = state.busy; this.registerCode.disabled = state.busy || !verify; this.registerSubmit.disabled = state.busy; this.registerResend.disabled = state.busy || state.cooldownSeconds > 0; this.registerSubmit.textContent = verify ? '验证并创建账号' : '发送验证码'; this.registerMessage.textContent = state.message; this.registerMessage.dataset.state = state.messageState; }
+  private renderRecoveryFlow(state: AccountRecoveryState): void { const password = state.mode === 'password'; this.recoveryEmailPanel.hidden = password; this.recoveryPasswordPanel.hidden = !password; this.recoveryEmail.disabled = state.busy; this.recoveryPassword.disabled = state.busy || !password; this.recoveryConfirmation.disabled = state.busy || !password; this.recoverySubmit.disabled = state.busy; this.recoverySubmit.textContent = password ? '保存新密码' : '发送重置邮件'; this.recoveryMessage.textContent = state.message; this.recoveryMessage.dataset.state = state.messageState; }
 
   private renderLoginFlow(state: AccountLoginState): void {
     const verifying = state.stage === 'verify';

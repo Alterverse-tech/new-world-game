@@ -1800,12 +1800,387 @@ input:disabled {
 .avatar-upload-status[data-state="loading"],
 .avatar-upload-status[data-state="uploading"] { color: var(--wr-warning); }
 
+
+
 .account-password-legacy[hidden],
 #account-reset-open[hidden],
 #account-register-btn[hidden],
 .account-login-email-field[hidden],
 .account-login-otp-panel[hidden] {
   display: none;
+}
+
+.account-register-dialog {
+  width: min(500px, calc(100vw - 32px));
+}
+
+.account-register-close {
+  display: grid;
+  flex: 0 0 44px;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  place-items: center;
+  color: #555;
+  border: 1px solid var(--wr-line);
+  border-radius: 10px;
+  background: #fafaf9;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.account-register-close:hover,
+.account-register-close:focus-visible {
+  color: #000;
+  border-color: #1010105c;
+  background: #fff;
+  box-shadow: var(--wr-focus);
+}
+
+.account-register-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: -4px 0 22px;
+  padding: 0;
+  list-style: none;
+}
+
+.account-register-steps li {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 11px;
+  color: var(--wr-faint);
+  border: 1px solid var(--wr-line);
+  border-radius: var(--wr-radius-sm);
+  background: var(--wr-surface-soft);
+}
+
+.account-register-steps li.is-active {
+  color: var(--wr-on-inverse);
+  border-color: var(--wr-inverse);
+  background: var(--wr-inverse);
+}
+
+.account-register-steps li.is-complete {
+  color: var(--wr-ink);
+  border-color: var(--wr-line-strong);
+  background: #fff;
+}
+
+.account-register-steps span {
+  font-family: var(--wr-mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+}
+
+.account-register-steps b {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-register-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.account-register-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.account-register-panel[hidden] {
+  display: none;
+}
+
+.account-register-code-target {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  color: var(--wr-muted);
+  border: 1px solid var(--wr-line);
+  border-radius: var(--wr-radius-sm);
+  background: var(--wr-surface-soft);
+  font-size: 11px;
+}
+
+.account-register-code-target strong {
+  overflow: hidden;
+  color: var(--wr-ink);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-register-code-field input {
+  text-align: center;
+  font-family: var(--wr-mono);
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: .32em;
+}
+
+.account-register-code-field input::placeholder {
+  font-weight: 450;
+  letter-spacing: .32em;
+}
+
+.account-register-resend {
+  justify-self: start;
+  padding: 0;
+  color: var(--wr-muted);
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.account-register-resend:hover:not(:disabled),
+.account-register-resend:focus-visible {
+  color: var(--wr-ink);
+}
+
+.account-register-resend:disabled {
+  color: var(--wr-faint);
+  cursor: not-allowed;
+}
+
+#account-register-submit {
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: var(--wr-radius-sm);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+#account-register-submit {
+  color: var(--wr-on-inverse);
+  border: 1px solid var(--wr-inverse);
+  background: var(--wr-inverse);
+}
+
+#account-register-submit:hover:not(:disabled),
+#account-register-submit:focus-visible {
+  color: #fff;
+  background: var(--wr-inverse-soft);
+  box-shadow: var(--wr-focus);
+  transform: translateY(-1px);
+}
+
+#account-register-submit:disabled {
+  color: var(--wr-faint);
+  border-color: var(--wr-line);
+  background: var(--wr-surface-muted);
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+}
+
+@media (max-width: 520px) {
+  .account-register-steps {
+    gap: 6px;
+  }
+
+  .account-register-steps li {
+    padding: 9px 8px;
+  }
+
+  .account-register-steps b {
+    font-size: 10px;
+  }
+}
+.account-reset-dialog {
+  width: min(500px, calc(100vw - 32px));
+}
+
+.account-reset-close {
+  display: grid;
+  flex: 0 0 44px;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  place-items: center;
+  color: #555;
+  border: 1px solid var(--wr-line);
+  border-radius: 10px;
+  background: #fafaf9;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.account-reset-close:hover,
+.account-reset-close:focus-visible {
+  color: #000;
+  border-color: #1010105c;
+  background: #fff;
+  box-shadow: var(--wr-focus);
+}
+
+.account-reset-link {
+  justify-self: end;
+  margin-top: -8px;
+  padding: 0;
+  color: var(--wr-muted);
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.account-reset-link:hover,
+.account-reset-link:focus-visible {
+  color: var(--wr-ink);
+}
+
+.account-reset-steps {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: -4px 0 22px;
+  padding: 0;
+  list-style: none;
+}
+
+.account-reset-steps li {
+  display: grid;
+  gap: 5px;
+  padding: 10px 11px;
+  color: var(--wr-faint);
+  border: 1px solid var(--wr-line);
+  border-radius: var(--wr-radius-sm);
+  background: var(--wr-surface-soft);
+}
+
+.account-reset-steps li.is-active {
+  color: var(--wr-on-inverse);
+  border-color: var(--wr-inverse);
+  background: var(--wr-inverse);
+}
+
+.account-reset-steps li.is-complete {
+  color: var(--wr-ink);
+  border-color: var(--wr-line-strong);
+  background: #fff;
+}
+
+.account-reset-steps span {
+  font-family: var(--wr-mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+}
+
+.account-reset-steps b {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.account-reset-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.account-reset-panel[hidden] {
+  display: none;
+}
+
+.account-reset-note,
+.account-reset-verified {
+  margin: 0;
+  padding: 14px;
+  color: var(--wr-muted);
+  border: 1px solid var(--wr-line);
+  border-radius: var(--wr-radius-sm);
+  background: var(--wr-surface-soft);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.account-reset-verified {
+  display: grid;
+  gap: 4px;
+}
+
+.account-reset-verified span {
+  color: var(--wr-success);
+  font-family: var(--wr-mono);
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.account-reset-verified strong {
+  color: var(--wr-ink);
+  font-size: 13px;
+}
+
+.account-reset-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.account-reset-actions button {
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: var(--wr-radius-sm);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+#account-reset-submit {
+  color: var(--wr-on-inverse);
+  border: 1px solid var(--wr-inverse);
+  background: var(--wr-inverse);
+}
+
+#account-reset-submit:hover:not(:disabled),
+#account-reset-submit:focus-visible {
+  color: #fff;
+  background: var(--wr-inverse-soft);
+  box-shadow: var(--wr-focus);
+  transform: translateY(-1px);
+}
+
+#account-reset-back {
+  color: var(--wr-ink);
+  border: 1px solid var(--wr-line-strong);
+  background: #fff;
+}
+
+#account-reset-back:hover:not(:disabled),
+#account-reset-back:focus-visible {
+  border-color: var(--wr-ink);
+  box-shadow: var(--wr-focus);
+}
+
+.account-reset-actions button:disabled {
+  color: var(--wr-faint);
+  border-color: var(--wr-line);
+  background: var(--wr-surface-muted);
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+}
+
+@media (max-width: 420px) {
+  .account-reset-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .account-login-otp-panel {

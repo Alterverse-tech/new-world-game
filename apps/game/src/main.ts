@@ -1,12 +1,15 @@
 import './style.css';
 import './openai-theme.css';
 import { AccountController } from './account-controller';
+import { AccountAuthService } from './account-auth-service';
+import { captureRecoveryHash } from './account-recovery-flow';
 import { WhiteRoomGame } from './white-room-game';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game-canvas');
 if (!canvas) throw new Error('WhiteRoom canvas was not found');
 
-const account = new AccountController();
+const recoveryHash = captureRecoveryHash({ location: window.location, replaceState: window.history.replaceState.bind(window.history) });
+const account = new AccountController(new AccountAuthService(), recoveryHash);
 await account.initialize();
 const game = new WhiteRoomGame(canvas, account);
 game.start();

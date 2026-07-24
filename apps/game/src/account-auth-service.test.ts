@@ -188,6 +188,24 @@ describe('AccountAuthService', () => {
     });
   });
 
+  it('uses the recovery REST contracts and redacts recovery errors', async () => {
+    const updateUser = vi.fn(async () => ({ error: null }));
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(configResponse())
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    const service = new AccountAuthService({ fetchImpl, createClientImpl: () => ({ auth: { updateUser } }) as never });
+    await service.setPassword('register-password');
+    await service.sendRecoveryEmail('player@example.com', 'https://altverse.fun/?password_reset=1');
+    await service.updateRecoveredPassword('recovery-secret', 'new-password');
+    expect(updateUser).toHaveBeenCalledWith({ password: 'register-password' });
+    expect(fetchImpl.mock.calls[1]![0].toString()).toBe('https://project-ref.supabase.co/auth/v1/recover?redirect_to=https%3A%2F%2Faltverse.fun%2F%3Fpassword_reset%3D1');
+    expect(fetchImpl.mock.calls[1]![1]).toMatchObject({ method: 'POST', credentials: 'omit', cache: 'no-store', body: JSON.stringify({ email: 'player@example.com' }) });
+    expect(fetchImpl.mock.calls[2]![1]).toMatchObject({ method: 'PUT', credentials: 'omit', cache: 'no-store', body: JSON.stringify({ password: 'new-password' }), headers: expect.objectContaining({ Authorization: 'Bearer recovery-secret' }) });
+    const failing = new AccountAuthService({ fetchImpl: vi.fn().mockResolvedValueOnce(configResponse()).mockResolvedValueOnce(new Response(JSON.stringify({ code: 'unknown', token: 'private' }), { status: 400 })) });
+    await expect(failing.sendRecoveryEmail('player@example.com', 'https://altverse.fun/')).rejects.toThrow('重置邮件发送失败，请稍后重试。');
+  });
+
   it('rejects null and primitive successful session responses with a fixed error', async () => {
     for (const body of ['null', '"unexpected"', '42']) {
       const service = new AccountAuthService({

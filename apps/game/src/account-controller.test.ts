@@ -115,6 +115,31 @@ function initializedController(authService: object) {
     'account-login-otp-change',
     'account-login-btn',
     'account-register-btn',
+    'account-register-dialog',
+    'account-register-form',
+    'account-register-email',
+    'account-register-password',
+    'account-register-password-confirm',
+    'account-register-code',
+    'account-register-details',
+    'account-register-verify',
+    'account-register-message',
+    'account-register-submit',
+    'account-register-close',
+    'account-register-resend',
+    'account-register-have-code',
+    'account-reset-dialog',
+    'account-reset-form',
+    'account-reset-email',
+    'account-reset-password',
+    'account-reset-password-confirm',
+    'account-reset-email-panel',
+    'account-reset-password-panel',
+    'account-reset-message',
+    'account-reset-submit',
+    'account-reset-close',
+    'account-reset-back',
+    'account-reset-open',
     'account-auth-close',
     'account-auth-message',
     'start-btn',
@@ -343,7 +368,7 @@ describe('email auth operations', () => {
     await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalledOnce());
     expect(loginClick.defaultPrevented).toBe(true);
     expect(loginButton.listenerCalls).toContainEqual({ type: 'click', options: undefined });
-    expect(elements.get('account-register-btn')!.listenerCalls).toEqual([]);
+    expect(elements.get('account-register-btn')!.listenerCalls).toContainEqual({ type: 'click', options: undefined });
   });
 
   it('remembers a valid lobby channel before reloading after OTP verification', async () => {
@@ -428,6 +453,17 @@ describe('email auth operations', () => {
     expect(cancel.defaultPrevented).toBe(true);
     expect(dialog.open).toBe(false);
     expect(otp.value).toBe('');
+  });
+
+  it('opens recovery callbacks through ordinary controller wiring without exposing their token', () => {
+    const { elements } = initializedController({});
+    const service = { sendOtp: vi.fn(), verifyOtp: vi.fn(), exchangeSession: vi.fn(), sendRecoveryEmail: vi.fn(), updateRecoveredPassword: vi.fn() };
+    const controller = new AccountController(service as never, '#access_token=recovery-secret&type=recovery');
+    expect(elements.get('account-reset-dialog')!.open).toBe(true);
+    expect(elements.get('account-reset-password-panel')!.hidden).toBe(false);
+    expect(JSON.stringify(controller.getTextState())).not.toContain('recovery-secret');
+    elements.get('account-reset-close')!.dispatchEvent(new Event('click'));
+    expect(elements.get('account-reset-password')!.value).toBe('');
   });
 
   it('signs out locally after clearing the server session and redacts provider errors', async () => {

@@ -137,6 +137,179 @@
         </div>
       </dialog>
 
++      <dialog id="account-reset-dialog" class="account-auth-dialog account-reset-dialog" aria-labelledby="account-reset-title" aria-describedby="account-reset-copy">
+        <div class="account-auth-shell">
+          <header class="account-auth-head">
+            <div>
+              <p class="eyebrow">ACCOUNT RECOVERY</p>
+              <h2 id="account-reset-title">找回账号</h2>
+              <p id="account-reset-copy">通过注册邮箱验证身份，并设置一个新密码。</p>
+            </div>
+            <button id="account-reset-close" class="account-reset-close" type="button" aria-label="关闭密码重置">×</button>
+          </header>
+
+          <ol class="account-reset-steps" aria-label="密码重置步骤">
+            <li class="is-active" data-reset-step="email"><span>01</span><b>验证邮箱</b></li>
+            <li data-reset-step="password"><span>02</span><b>设置密码</b></li>
+          </ol>
+
+          <form id="account-reset-form" class="account-auth-form" autocomplete="on" novalidate>
+            <div id="account-reset-email-panel" class="account-reset-panel">
+              <label class="account-auth-field" for="account-reset-email">
+                <span>注册邮箱</span>
+                <input
+                  id="account-reset-email"
+                  name="email"
+                  type="email"
+                  inputmode="email"
+                  autocomplete="email"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  maxlength="254"
+                  placeholder="name@example.com"
+                  required
+                />
+              </label>
+              <p class="account-reset-note">我们会发送一封密码重置邮件。为保护账号，无论邮箱是否存在，页面都会显示相同结果。</p>
+            </div>
+
+            <div id="account-reset-password-panel" class="account-reset-panel" hidden>
+              <div class="account-reset-verified">
+                <span>邮箱验证完成</span>
+                <strong>现在设置新密码</strong>
+              </div>
+              <label class="account-auth-field" for="account-reset-password">
+                <span>新密码</span>
+                <input
+                  id="account-reset-password"
+                  name="new-password"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="8"
+                  maxlength="72"
+                  placeholder="8–72 个字符"
+                  required
+                />
+              </label>
+              <label class="account-auth-field" for="account-reset-password-confirm">
+                <span>确认新密码</span>
+                <input
+                  id="account-reset-password-confirm"
+                  name="new-password-confirm"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="8"
+                  maxlength="72"
+                  placeholder="再次输入新密码"
+                  required
+                />
+              </label>
+            </div>
+
+            <p id="account-reset-message" class="account-auth-message" data-state="guest" role="status" aria-live="polite">输入注册邮箱以接收重置邮件。</p>
+            <div class="account-reset-actions">
+              <button id="account-reset-submit" type="submit">发送重置邮件</button>
+              <button id="account-reset-back" type="button">返回登录</button>
+            </div>
+          </form>
+        </div>
+      </dialog>
+
+      <dialog id="account-register-dialog" class="account-auth-dialog account-register-dialog" aria-labelledby="account-register-title" aria-describedby="account-register-copy">
+        <div class="account-auth-shell">
+          <header class="account-auth-head">
+            <div>
+              <p class="eyebrow">NEW PLAYER</p>
+              <h2 id="account-register-title">创建账号</h2>
+              <p id="account-register-copy">使用邮箱验证码确认身份，完成后即可用邮箱和密码登录。</p>
+            </div>
+            <button id="account-register-close" class="account-register-close" type="button" aria-label="关闭账号注册">×</button>
+          </header>
+
+          <ol class="account-register-steps" aria-label="注册步骤">
+            <li class="is-active" data-register-step="details"><span>01</span><b>填写账号</b></li>
+            <li data-register-step="verify"><span>02</span><b>输入验证码</b></li>
+            <li data-register-step="complete"><span>03</span><b>完成注册</b></li>
+          </ol>
+
+          <form id="account-register-form" class="account-auth-form" autocomplete="on" novalidate>
+            <div id="account-register-details" class="account-register-panel">
+              <label class="account-auth-field" for="account-register-email">
+                <span>邮箱地址</span>
+                <input
+                  id="account-register-email"
+                  name="email"
+                  type="email"
+                  inputmode="email"
+                  autocomplete="email"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  maxlength="254"
+                  placeholder="name@example.com"
+                  required
+                />
+              </label>
+              <label class="account-auth-field" for="account-register-password">
+                <span>设置密码</span>
+                <input
+                  id="account-register-password"
+                  name="new-password"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="8"
+                  maxlength="72"
+                  placeholder="8–72 个字符"
+                  aria-describedby="account-register-message"
+                  required
+                />
+              </label>
+              <label class="account-auth-field" for="account-register-password-confirm">
+                <span>确认密码</span>
+                <input
+                  id="account-register-password-confirm"
+                  name="new-password-confirm"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="8"
+                  maxlength="72"
+                  placeholder="再次输入密码"
+                  aria-describedby="account-register-message"
+                  required
+                />
+              </label>
+              <button id="account-register-have-code" class="account-register-resend" type="button">我已有验证码</button>
+            </div>
+
+            <div id="account-register-verify" class="account-register-panel" hidden>
+              <div class="account-register-code-target">
+                <span>验证码已发送至</span>
+                <strong id="account-register-code-email">—</strong>
+              </div>
+              <label class="account-auth-field account-register-code-field" for="account-register-code">
+                <span>6 位验证码</span>
+                <input
+                  id="account-register-code"
+                  name="email-code"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  maxlength="6"
+                  pattern="[0-9]{6}"
+                  placeholder="000000"
+                  aria-describedby="account-register-message"
+                />
+              </label>
+              <button id="account-register-resend" class="account-register-resend" type="button">重新发送验证码</button>
+            </div>
+
+            <p id="account-register-message" class="account-auth-message" data-state="guest" role="status" aria-live="polite">填写后由 Supabase 向邮箱发送 6 位验证码。</p>
+            <div class="account-register-actions">
+              <button id="account-register-submit" type="submit">发送验证码</button>
+            </div>
+          </form>
+        </div>
+      </dialog>
+
       <div id="hud" class="hud hidden" aria-live="polite">
         <button id="lobby-editor-entry" class="lobby-editor-entry hidden" type="button">
           <span>＋</span><b>装修大厅</b><small>B · 公共区与家园</small>
