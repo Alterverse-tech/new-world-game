@@ -376,6 +376,7 @@ export class AccountController {
   private closeAuthDialog(force = false): void {
     if (!this.authDialog.open) return;
     if (this.loginFlow.getState().busy && !force) return;
+    if (!force) this.loginFlow.changeEmail();
     this.authDialog.close();
     if (!force) this.loginOpenButton.focus();
   }

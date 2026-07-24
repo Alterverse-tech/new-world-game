@@ -15,7 +15,7 @@ function port(values: { email: string; token: string }): AccountLoginPort & { re
     readEmail: vi.fn(() => values.email),
     readToken: vi.fn(() => values.token),
     render: vi.fn((state: AccountLoginState) => result.renders.push(state)),
-    clearToken: vi.fn(),
+    clearToken: vi.fn(() => { values.token = ''; }),
     focusEmail: vi.fn(),
     focusToken: vi.fn(),
   };
@@ -33,7 +33,8 @@ function storage(initial: Record<string, string> = {}): StoragePort {
 
 describe('AccountLoginFlow', () => {
   it('normalizes an email, sends OTP, then verifies, exchanges and reloads once', async () => {
-    const ui = port({ email: ' Player@Example.COM ', token: '123456' });
+    const values = { email: ' Player@Example.COM ', token: '123456' };
+    const ui = port(values);
     const store = storage();
     const session = { access_token: 'private-token' } as Session;
     const trace: string[] = [];
@@ -53,12 +54,15 @@ describe('AccountLoginFlow', () => {
 
     expect(service.sendOtp).toHaveBeenCalledWith('player@example.com', 'https://altverse.fun/');
     expect(flow.getState()).toMatchObject({ stage: 'verify', email: 'player@example.com', busy: false });
+    values.token = '123456';
+    ui.clearToken = () => { values.token = ''; trace.push('clearToken'); };
 
     vi.useFakeTimers();
     try {
       const verification = flow.submit();
       await vi.advanceTimersByTimeAsync(449);
       expect(reload).not.toHaveBeenCalled();
+      expect(ui.readToken()).toBe('');
       await vi.advanceTimersByTimeAsync(1);
       await verification;
     } finally {
@@ -69,7 +73,9 @@ describe('AccountLoginFlow', () => {
     expect(service.exchangeSession).toHaveBeenCalledWith(session);
     expect(store.delete).toHaveBeenCalledWith(OTP_COOLDOWN_KEY);
     expect(reload).toHaveBeenCalledOnce();
-    expect(trace).toEqual(['verifyOtp', 'exchangeSession', `delete:${OTP_COOLDOWN_KEY}`, 'reload']);
+    expect(trace).toEqual([
+      'verifyOtp', 'exchangeSession', `delete:${OTP_COOLDOWN_KEY}`, 'clearToken', 'reload',
+    ]);
     expect(JSON.stringify(ui.renders)).not.toContain('private-token');
   });
 
@@ -100,7 +106,8 @@ describe('AccountLoginFlow', () => {
   });
 
   it('resets a reopened flow and ignores change-email while a request is busy', async () => {
-    const ui = port({ email: 'player@example.com', token: '123456' });
+    const values = { email: 'player@example.com', token: '123456' };
+    const ui = port(values);
     let resolveSend!: () => void;
     const service = {
       sendOtp: vi.fn(() => new Promise<void>((resolve) => { resolveSend = resolve; })),
@@ -158,5 +165,57 @@ describe('AccountLoginFlow', () => {
     await flow.submit();
 
     expect(focusDisabled).toEqual([false]);
+  });
+
+  it('focuses a failed verification only after the token input is interactive again', async () => {
+    const values = { email: 'player@example.com', token: '123456' };
+    const ui = port(values);
+    let tokenDisabled = true;
+    const focusDisabled: boolean[] = [];
+    ui.render = (state) => {
+      tokenDisabled = state.busy || state.stage !== 'verify';
+      ui.renders.push(state);
+    };
+    ui.focusToken = () => { focusDisabled.push(tokenDisabled); };
+    const flow = new AccountLoginFlow({
+      port: ui,
+      service: {
+        sendOtp: vi.fn(async () => {}),
+        verifyOtp: vi.fn(async () => { throw new Error('provider secret'); }),
+        exchangeSession: vi.fn(async () => {}),
+      },
+      storage: storage(), now: () => 1_000, redirectTo: 'https://altverse.fun/', reload: vi.fn(),
+    });
+
+    await flow.submit();
+    values.token = '123456';
+    await flow.submit();
+
+    expect(flow.getState()).toMatchObject({ stage: 'verify', busy: false, messageState: 'error' });
+    expect(focusDisabled.at(-1)).toBe(false);
+  });
+
+  it('resets the dialog without deleting its persisted cooldown', async () => {
+    const ui = port({ email: 'player@example.com', token: '123456' });
+    const store = storage({
+      [OTP_COOLDOWN_KEY]: JSON.stringify({ email: 'player@example.com', until: 61_000 }),
+    });
+    const service = {
+      sendOtp: vi.fn(async () => {}),
+      verifyOtp: vi.fn(async () => ({ access_token: 'private-token' } as Session)),
+      exchangeSession: vi.fn(async () => {}),
+    };
+    const flow = new AccountLoginFlow({
+      port: ui, service, storage: store, now: () => 2_000,
+      redirectTo: 'https://altverse.fun/', reload: vi.fn(),
+    });
+
+    flow.changeEmail();
+    await flow.submit();
+
+    expect(ui.clearToken).toHaveBeenCalledOnce();
+    expect(store.delete).not.toHaveBeenCalled();
+    expect(service.sendOtp).not.toHaveBeenCalled();
+    expect(flow.getState()).toMatchObject({ stage: 'verify', cooldownSeconds: 59 });
   });
 });

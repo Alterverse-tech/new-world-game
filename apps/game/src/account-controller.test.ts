@@ -409,6 +409,27 @@ describe('email auth operations', () => {
     expect(elements.get('account-login-otp-input')!.focusDisabledAtCall).toEqual([false]);
   });
 
+  it('clears OTP input when a non-busy dialog is closed or cancelled', () => {
+    const { controller, elements } = initializedController({});
+    enableAccountUi(controller);
+    const dialog = elements.get('account-auth-dialog')!;
+    const otp = elements.get('account-login-otp-input')!;
+
+    dialog.open = true;
+    otp.value = '123456';
+    elements.get('account-auth-close')!.dispatchEvent(new Event('click'));
+    expect(dialog.open).toBe(false);
+    expect(otp.value).toBe('');
+
+    dialog.open = true;
+    otp.value = '654321';
+    const cancel = new Event('cancel', { cancelable: true });
+    expect(dialog.dispatchEvent(cancel)).toBe(false);
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(dialog.open).toBe(false);
+    expect(otp.value).toBe('');
+  });
+
   it('signs out locally after clearing the server session and redacts provider errors', async () => {
     const reload = vi.fn();
     const signOut = vi.fn(async () => ({ error: null }));

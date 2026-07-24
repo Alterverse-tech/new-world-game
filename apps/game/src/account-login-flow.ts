@@ -176,10 +176,12 @@ export class AccountLoginFlow {
   private async verify(token: string): Promise<void> {
     this.setState({ busy: true, message: '正在验证邮箱验证码…', messageState: 'loading' });
     let completed = false;
+    let shouldFocusToken = false;
     try {
       const session = await this.dependencies.service.verifyOtp(this.state.email, token);
       await this.dependencies.service.exchangeSession(session);
       this.deleteCooldown();
+      this.dependencies.port.clearToken();
       this.setState({ message: '登录成功，正在进入 WhiteRoom…', messageState: 'success' });
       await new Promise<void>((resolve) => {
         globalThis.setTimeout(resolve, OTP_SUCCESS_RELOAD_DELAY_MS);
@@ -190,9 +192,12 @@ export class AccountLoginFlow {
       this.setState({
         stage: 'verify', message: '验证码验证失败，请检查后重试。', messageState: 'error',
       });
-      this.dependencies.port.focusToken();
+      shouldFocusToken = true;
     } finally {
-      if (!completed) this.setState({ busy: false });
+      if (!completed) {
+        this.setState({ busy: false });
+        if (shouldFocusToken) this.dependencies.port.focusToken();
+      }
     }
   }
 
