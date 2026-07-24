@@ -90,4 +90,12 @@ describe('AccountRegistrationFlow', () => {
     const resend = flow.resend(); await flow.resend(); expect(sendOtp).toHaveBeenCalledTimes(2);
     resolveResend(); await resend;
   });
+
+  it('retries post-verification failures without reusing the OTP', async () => {
+    const ui = makePort(); const session = { access_token: 'private' } as Session;
+    const verifyOtp = vi.fn(async () => session); const setPassword = vi.fn().mockRejectedValueOnce(new Error('x')).mockResolvedValueOnce(undefined); const exchangeSession = vi.fn(async () => {});
+    const flow = new AccountRegistrationFlow({ port: ui, service: { sendOtp: vi.fn(async () => {}), verifyOtp, setPassword, exchangeSession }, storage: { get: vi.fn(), set: vi.fn(), delete: vi.fn() }, now: Date.now, redirectTo: 'https://altverse.fun/', reload: vi.fn() });
+    await flow.submit(); await flow.submit(); await flow.submit();
+    expect(verifyOtp).toHaveBeenCalledOnce(); expect(setPassword).toHaveBeenCalledTimes(2); expect(exchangeSession).toHaveBeenCalledOnce(); expect(JSON.stringify(flow.getState())).not.toContain('private');
+  });
 });
