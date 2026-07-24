@@ -217,7 +217,7 @@ export class AccountController {
       },
     });
     this.registrationFlow = new AccountRegistrationFlow({ port: this.createRegistrationPort(), service: this.authService, storage: browserStoragePort(sessionStorage), now: Date.now, redirectTo: authRedirectUrl(window.location), reload: () => window.location.reload() });
-    this.recoveryFlow = new AccountRecoveryFlow({ port: this.createRecoveryPort(), service: this.authService, onSuccess: () => { this.recoveryDialog.close(); this.openAuthDialog(); } });
+    this.recoveryFlow = new AccountRecoveryFlow({ port: this.createRecoveryPort(), service: this.authService, onSuccess: () => this.returnRecoveryToLogin('密码已更新，请使用新密码登录。') });
     this.loginOpenButton.addEventListener('click', () => this.openAuthDialog());
     this.signoutButton.addEventListener('click', () => void this.signOut());
     this.settingsAction.addEventListener('click', () => {
@@ -246,19 +246,19 @@ export class AccountController {
       event.preventDefault();
       this.closeAuthDialog();
     });
-    this.registerOpen.addEventListener('click', () => { this.closeAuthDialog(true); this.registrationFlow.open(this.emailInput.value); this.registerDialog.showModal(); });
+    this.registerOpen.addEventListener('click', () => { this.closeAuthDialog(true); this.registerDialog.showModal(); this.registrationFlow.open(this.emailInput.value); });
     this.registerForm.addEventListener('submit', (event) => { event.preventDefault(); void this.registrationFlow.submit(); });
     this.registerResend.addEventListener('click', () => void this.registrationFlow.resend());
     this.registerExisting.addEventListener('click', () => this.registrationFlow.useExistingCode());
     this.registerCode.addEventListener('input', () => { this.registerCode.value = this.registerCode.value.replace(/\D/g, '').slice(0, 6); const state = this.registrationFlow.getState(); if (state.stage === 'verify' && !state.busy && this.registerCode.value.length === 6) void this.registrationFlow.submit(); });
     this.registerClose.addEventListener('click', () => this.closeRegistration());
     this.registerDialog.addEventListener('cancel', (event) => { event.preventDefault(); this.closeRegistration(); });
-    this.recoveryOpen.addEventListener('click', () => { this.closeAuthDialog(true); this.recoveryFlow.open(this.emailInput.value); this.recoveryDialog.showModal(); });
+    this.recoveryOpen.addEventListener('click', () => { this.closeAuthDialog(true); this.recoveryDialog.showModal(); this.recoveryFlow.open(this.emailInput.value); });
     this.recoveryForm.addEventListener('submit', (event) => { event.preventDefault(); void (this.recoveryFlow.getState().mode === 'email' ? this.recoveryFlow.sendEmail(new URL('/?password_reset=1', window.location.origin).href) : this.recoveryFlow.updatePassword()); });
     this.recoveryClose.addEventListener('click', () => this.closeRecovery());
-    this.recoveryBack.addEventListener('click', () => this.closeRecovery());
+    this.recoveryBack.addEventListener('click', () => this.returnRecoveryToLogin());
     this.recoveryDialog.addEventListener('cancel', (event) => { event.preventDefault(); this.closeRecovery(); });
-    if (recoveryHash) { this.recoveryFlow.openRecovery(recoveryHash); this.recoveryDialog.showModal(); }
+    if (recoveryHash) { this.recoveryDialog.showModal(); this.recoveryFlow.openRecovery(recoveryHash); }
     this.render();
   }
 
@@ -424,6 +424,7 @@ export class AccountController {
   private scheduleRegistrationCooldown(seconds: number): void { if (seconds <= 0) { if (this.registrationCooldownTimer !== null) window.clearTimeout(this.registrationCooldownTimer); this.registrationCooldownTimer = null; return; } if (this.registrationCooldownTimer !== null) return; this.registrationCooldownTimer = window.setTimeout(() => { this.registrationCooldownTimer = null; this.registrationFlow.updateCooldown(); }, 1_000); }
   private closeRegistration(): void { if (!this.registrationFlow.getState().busy) { this.registrationFlow.cancel(); this.registerDialog.close(); } }
   private closeRecovery(): void { if (!this.recoveryFlow.getState().busy) { this.recoveryFlow.cancel(); this.recoveryDialog.close(); } }
+  private returnRecoveryToLogin(message = '请输入邮箱获取验证码。'): void { if (this.recoveryFlow.getState().busy) return; const email = this.recoveryEmail.value; this.recoveryFlow.cancel(); this.recoveryDialog.close(); this.emailInput.value = email; this.openAuthDialog(); this.authMessage.textContent = message; this.authMessage.dataset.state = 'success'; }
 
   private renderLoginFlow(state: AccountLoginState): void {
     const verifying = state.stage === 'verify';
