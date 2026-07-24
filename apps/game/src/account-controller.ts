@@ -1,20 +1,9 @@
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
+import { AccountAuthService, authRedirectUrl } from './account-auth-service';
+
+export { authRedirectUrl, parseAuthConfig } from './account-auth-service';
 
 type AccountPhase = 'loading' | 'guest' | 'signing_in' | 'signing_up' | 'signed_in' | 'signing_out' | 'error';
-
-interface EnabledAuthConfig {
-  enabled: true;
-  provider: 'email';
-  supabaseUrl: string;
-  publishableKey: string;
-}
-
-interface DisabledAuthConfig {
-  enabled: false;
-  provider: 'email';
-}
-
-type AuthConfig = EnabledAuthConfig | DisabledAuthConfig;
 
 interface AccountState {
   ready: boolean;
@@ -111,43 +100,6 @@ export function isAccountPasswordValid(value: unknown): value is string {
   return length >= ACCOUNT_PASSWORD_MIN_LENGTH && length <= ACCOUNT_PASSWORD_MAX_LENGTH;
 }
 
-export function parseAuthConfig(value: unknown): AuthConfig {
-  if (!value || typeof value !== 'object') throw new Error('账号配置响应无效');
-  const record = value as Record<string, unknown>;
-  if (record.provider !== 'email') throw new Error('账号登录方式无效');
-  if (record.enabled === false) return { enabled: false, provider: 'email' };
-  if (record.enabled !== true) throw new Error('账号配置响应无效');
-  const supabaseUrl = safeString(record.supabaseUrl, 2048);
-  const publishableKey = safeString(record.publishableKey, 4096);
-  if (!supabaseUrl || !publishableKey || /\s/.test(publishableKey)) throw new Error('账号公开配置无效');
-  let parsed;
-  try {
-    parsed = new URL(supabaseUrl);
-  } catch {
-    throw new Error('账号服务地址无效');
-  }
-  if (
-    parsed.protocol !== 'https:'
-    || parsed.username
-    || parsed.password
-    || parsed.search
-    || parsed.hash
-    || (parsed.pathname !== '/' && parsed.pathname !== '')
-  ) {
-    throw new Error('账号服务地址无效');
-  }
-  return {
-    enabled: true,
-    provider: 'email',
-    supabaseUrl: parsed.origin,
-    publishableKey,
-  };
-}
-
-export function authRedirectUrl(locationLike: Pick<Location, 'origin'>): string {
-  return new URL('/', locationLike.origin).href;
-}
-
 export function accountDisplayName(user: User, profile?: ProfileRow | null): string {
   const metadata = user.user_metadata ?? {};
   return safeDisplayString(profile?.game_nickname, 80)
@@ -221,6 +173,7 @@ export class AccountController {
   private readonly authMessage = byId<HTMLElement>('account-auth-message');
   private readonly startButton = byId<HTMLButtonElement>('start-btn');
   private readonly assetNote = byId<HTMLElement>('lobby-asset-account-note');
+  private readonly authService: AccountAuthService;
   private client: SupabaseClient | null = null;
   private currentUser: User | null = null;
   private profileRow: ProfileRow | null = null;
@@ -237,7 +190,8 @@ export class AccountController {
     message: '正在检查账号',
   };
 
-  constructor() {
+  constructor(authService = new AccountAuthService()) {
+    this.authService = authService;
     this.loginOpenButton.addEventListener('click', () => this.openAuthDialog());
     this.signoutButton.addEventListener('click', () => void this.signOut());
     this.settingsAction.addEventListener('click', () => {
@@ -268,14 +222,7 @@ export class AccountController {
     const callbackError = authCallbackErrorMessage();
     restoreChannel();
     try {
-      const response = await fetch('/api/auth/config', {
-        headers: { Accept: 'application/json' },
-        credentials: 'same-origin',
-        cache: 'no-store',
-        signal: AbortSignal.timeout(6_000),
-      });
-      if (!response.ok) throw new Error(`账号配置 HTTP ${response.status}`);
-      const config = parseAuthConfig(await response.json());
+      const config = await this.authService.loadConfig();
       if (!config.enabled) {
         this.setState({
           ready: true,
@@ -288,15 +235,7 @@ export class AccountController {
         return;
       }
 
-      const { createClient } = await import('@supabase/supabase-js');
-      this.client = createClient(config.supabaseUrl, config.publishableKey, {
-        auth: {
-          flowType: 'pkce',
-          detectSessionInUrl: true,
-          autoRefreshToken: true,
-          persistSession: true,
-        },
-      });
+      this.client = await this.authService.getClient();
       this.setState({ available: true, message: '正在恢复账号会话' });
       this.client.auth.onAuthStateChange((event, session) => {
         if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
@@ -554,27 +493,7 @@ export class AccountController {
 
   private async synchronizeSession(session: Session): Promise<void> {
     this.setState({ phase: 'signing_in', available: true, message: '正在连接 WhiteRoom 账号' });
-    const response = await fetch('/api/auth/session', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      credentials: 'same-origin',
-      cache: 'no-store',
-    });
-    if (!response.ok) {
-      let detail = `HTTP ${response.status}`;
-      try {
-        const payload = await response.json() as { error?: { message?: string } };
-        detail = payload.error?.message ?? detail;
-      } catch {
-        // Keep the status-only diagnostic.
-      }
-      throw new Error(`账号校验失败 · ${detail}`);
-    }
-    const payload = await response.json() as { account?: { signedIn?: boolean } };
-    if (payload.account?.signedIn !== true) throw new Error('账号校验响应无效');
+    await this.authService.exchangeSession(session);
     const profile = await this.loadProfile(session.user);
     this.lastSyncedAccessToken = session.access_token;
     this.currentUser = session.user;

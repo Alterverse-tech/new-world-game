@@ -1,4 +1,4 @@
-import type { User } from '@supabase/supabase-js';
+import type { Session, User } from '@supabase/supabase-js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AccountController,
@@ -61,6 +61,14 @@ function authActions(controller: AccountController): {
   return controller as unknown as {
     signInWithPassword(): Promise<void>;
     signUp(): Promise<void>;
+  };
+}
+
+function sessionActions(controller: AccountController): {
+  synchronizeSession(session: Session): Promise<void>;
+} {
+  return controller as unknown as {
+    synchronizeSession(session: Session): Promise<void>;
   };
 }
 
@@ -172,6 +180,26 @@ describe('account display name', () => {
 });
 
 describe('email auth operations', () => {
+  it('delegates password-login session exchange to the injected auth service', async () => {
+    const session = {
+      access_token: 'private-access-token',
+      user: user({ email: 'player@example.com' }),
+    } as Session;
+    const exchangeSession = vi.fn(async () => {});
+    const loadProfile = vi.fn(async () => ({ loaded: false, row: null }));
+    const controller = bareController({ mode: 'guest' });
+    Object.assign(controller, {
+      authService: { exchangeSession },
+      loadProfile,
+    });
+
+    await sessionActions(controller).synchronizeSession(session);
+
+    expect(exchangeSession).toHaveBeenCalledWith(session);
+    expect(loadProfile).toHaveBeenCalledWith(session.user);
+    expect(JSON.stringify(controller.getTextState())).not.toContain('private-access-token');
+  });
+
   it('signs in with normalized email/password and forwards only the returned session for exchange', async () => {
     const reload = vi.fn();
     vi.stubGlobal('window', { location: { reload } });
