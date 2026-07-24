@@ -1,5 +1,11 @@
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
 import { AccountAuthService, authRedirectUrl } from './account-auth-service';
+import {
+  AccountLoginFlow,
+  browserStoragePort,
+  type AccountLoginPort,
+  type AccountLoginState,
+} from './account-login-flow';
 
 export { authRedirectUrl, parseAuthConfig } from './account-auth-service';
 
@@ -37,8 +43,6 @@ interface ProfileRow {
 
 const AUTH_RETURN_CHANNEL_KEY = 'whiteroom.auth.return-channel';
 const ACCOUNT_EMAIL_MAX_LENGTH = 254;
-const ACCOUNT_PASSWORD_MIN_LENGTH = 8;
-const ACCOUNT_PASSWORD_MAX_LENGTH = 72;
 
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -94,12 +98,6 @@ export function normalizeAccountEmail(value: unknown): string | null {
   return email;
 }
 
-export function isAccountPasswordValid(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
-  const length = [...value].length;
-  return length >= ACCOUNT_PASSWORD_MIN_LENGTH && length <= ACCOUNT_PASSWORD_MAX_LENGTH;
-}
-
 export function accountDisplayName(user: User, profile?: ProfileRow | null): string {
   const metadata = user.user_metadata ?? {};
   return safeDisplayString(profile?.game_nickname, 80)
@@ -126,15 +124,6 @@ function cleanAuthParameters(): void {
     }
   }
   if (changed) window.history.replaceState(null, '', url);
-}
-
-function rememberChannel(): void {
-  try {
-    const channel = byId<HTMLInputElement>('lobby-channel-input').value.trim();
-    if (/^\d{4,12}$/.test(channel)) sessionStorage.setItem(AUTH_RETURN_CHANNEL_KEY, channel);
-  } catch {
-    // Storage can be unavailable in hardened/private browser modes.
-  }
 }
 
 function restoreChannel(): void {
@@ -166,14 +155,18 @@ export class AccountController {
   private readonly authDialog = byId<HTMLDialogElement>('account-auth-dialog');
   private readonly authForm = byId<HTMLFormElement>('account-auth-form');
   private readonly emailInput = byId<HTMLInputElement>('account-email-input');
-  private readonly passwordInput = byId<HTMLInputElement>('account-password-input');
+  private readonly otpPanel = byId<HTMLElement>('account-login-otp-panel');
+  private readonly otpEmail = byId<HTMLElement>('account-login-otp-email');
+  private readonly otpInput = byId<HTMLInputElement>('account-login-otp-input');
+  private readonly otpResendButton = byId<HTMLButtonElement>('account-login-otp-resend');
+  private readonly otpChangeButton = byId<HTMLButtonElement>('account-login-otp-change');
   private readonly dialogLoginButton = byId<HTMLButtonElement>('account-login-btn');
-  private readonly dialogRegisterButton = byId<HTMLButtonElement>('account-register-btn');
   private readonly authCloseButton = byId<HTMLButtonElement>('account-auth-close');
   private readonly authMessage = byId<HTMLElement>('account-auth-message');
   private readonly startButton = byId<HTMLButtonElement>('start-btn');
   private readonly assetNote = byId<HTMLElement>('lobby-asset-account-note');
   private readonly authService: AccountAuthService;
+  private readonly loginFlow: AccountLoginFlow;
   private client: SupabaseClient | null = null;
   private currentUser: User | null = null;
   private profileRow: ProfileRow | null = null;
@@ -192,6 +185,14 @@ export class AccountController {
 
   constructor(authService = new AccountAuthService()) {
     this.authService = authService;
+    this.loginFlow = new AccountLoginFlow({
+      port: this.createLoginPort(),
+      service: this.authService,
+      storage: browserStoragePort(sessionStorage),
+      now: Date.now,
+      redirectTo: authRedirectUrl(window.location),
+      reload: () => window.location.reload(),
+    });
     this.loginOpenButton.addEventListener('click', () => this.openAuthDialog());
     this.signoutButton.addEventListener('click', () => void this.signOut());
     this.settingsAction.addEventListener('click', () => {
@@ -200,16 +201,14 @@ export class AccountController {
     });
     this.authForm.addEventListener('submit', (event) => {
       event.preventDefault();
-      void this.signInWithPassword();
+      void this.loginFlow.submit();
     });
     this.dialogLoginButton.addEventListener('click', (event) => {
       event.preventDefault();
-      void this.signInWithPassword();
+      void this.loginFlow.submit();
     });
-    this.dialogRegisterButton.addEventListener('click', (event) => {
-      event.preventDefault();
-      void this.signUp();
-    });
+    this.otpResendButton.addEventListener('click', () => void this.loginFlow.resend());
+    this.otpChangeButton.addEventListener('click', () => this.loginFlow.changeEmail());
     this.authCloseButton.addEventListener('click', () => this.closeAuthDialog());
     this.authDialog.addEventListener('cancel', (event) => {
       event.preventDefault();
@@ -332,15 +331,12 @@ export class AccountController {
       : this.state.message;
     this.loginOpenButton.classList.toggle('hidden', signedIn);
     this.loginOpenButton.disabled = busy || !this.state.available;
-    this.loginOpenButton.textContent = '邮箱登录 / 注册';
+    this.loginOpenButton.textContent = '邮箱验证码登录';
     this.signoutButton.classList.toggle('hidden', !signedIn);
     this.signoutButton.disabled = busy;
     this.settingsAction.disabled = busy || (!signedIn && !this.state.available);
-    this.settingsAction.textContent = signedIn ? '退出登录' : '邮箱登录 / 注册';
-    this.emailInput.disabled = busy;
-    this.passwordInput.disabled = busy;
+    this.settingsAction.textContent = signedIn ? '退出登录' : '邮箱验证码登录';
     this.dialogLoginButton.disabled = busy || !this.state.available;
-    this.dialogRegisterButton.disabled = busy || !this.state.available;
     this.authCloseButton.disabled = busy;
     this.authMessage.dataset.state = this.state.phase;
     this.authMessage.textContent = this.state.message;
@@ -352,86 +348,44 @@ export class AccountController {
 
   private openAuthDialog(): void {
     if (!this.state.available || this.state.mode === 'email' || this.authDialog.open) return;
-    this.setState({ phase: 'guest', message: '输入邮箱和密码登录，或创建新账号' });
+    this.setState({ phase: 'guest', message: '输入邮箱获取验证码。' });
     this.authDialog.showModal();
-    window.requestAnimationFrame(() => this.emailInput.focus());
+    this.loginFlow.open();
   }
 
   private closeAuthDialog(force = false): void {
     if (!this.authDialog.open) return;
-    const busy = this.state.phase === 'signing_in' || this.state.phase === 'signing_up';
-    if (busy && !force) return;
-    this.passwordInput.value = '';
+    if (this.loginFlow.getState().busy && !force) return;
     this.authDialog.close();
     if (!force) this.loginOpenButton.focus();
   }
 
-  private readCredentials(): { email: string; password: string } | null {
-    const email = normalizeAccountEmail(this.emailInput.value);
-    if (!email) {
-      this.setState({ phase: 'error', message: '请输入有效的邮箱地址' });
-      this.emailInput.focus();
-      return null;
-    }
-    const password = this.passwordInput.value;
-    if (!isAccountPasswordValid(password)) {
-      this.setState({ phase: 'error', message: '密码需要 8–72 个字符' });
-      this.passwordInput.focus();
-      return null;
-    }
-    this.emailInput.value = email;
-    return { email, password };
+  private createLoginPort(): AccountLoginPort {
+    return {
+      readEmail: () => this.emailInput.value,
+      readToken: () => this.otpInput.value,
+      render: (state) => this.renderLoginFlow(state),
+      clearToken: () => { this.otpInput.value = ''; },
+      focusEmail: () => this.emailInput.focus(),
+      focusToken: () => this.otpInput.focus(),
+    };
   }
 
-  private async signInWithPassword(): Promise<void> {
-    if (!this.client || !this.state.available || this.state.phase === 'signing_in' || this.state.phase === 'signing_up') return;
-    const credentials = this.readCredentials();
-    if (!credentials) return;
-    this.setState({ phase: 'signing_in', message: '正在安全登录邮箱账号' });
-    try {
-      const { data, error } = await this.client.auth.signInWithPassword(credentials);
-      if (error) throw error;
-      if (!data.session) throw new Error('session unavailable');
-      await this.enqueueSessionSync(data.session);
-      rememberChannel();
-      this.closeAuthDialog(true);
-      window.location.reload();
-    } catch {
-      this.setState({ phase: 'error', message: '登录失败 · 请检查邮箱、密码或邮箱确认状态' });
-    } finally {
-      this.passwordInput.value = '';
-    }
-  }
-
-  private async signUp(): Promise<void> {
-    if (!this.client || !this.state.available || this.state.phase === 'signing_in' || this.state.phase === 'signing_up') return;
-    const credentials = this.readCredentials();
-    if (!credentials) return;
-    rememberChannel();
-    this.setState({ phase: 'signing_up', message: '正在创建邮箱账号' });
-    try {
-      const { data, error } = await this.client.auth.signUp({
-        ...credentials,
-        options: { emailRedirectTo: authRedirectUrl(window.location) },
-      });
-      if (error) throw error;
-      if (data.session) {
-        await this.enqueueSessionSync(data.session);
-        this.closeAuthDialog(true);
-        window.location.reload();
-      } else {
-        this.setState({
-          ready: true,
-          mode: 'guest',
-          phase: 'guest',
-          message: '确认邮件已发送 · 请到邮箱完成确认后再登录',
-        });
-      }
-    } catch {
-      this.setState({ phase: 'error', message: '注册失败 · 请检查邮箱或稍后重试' });
-    } finally {
-      this.passwordInput.value = '';
-    }
+  private renderLoginFlow(state: AccountLoginState): void {
+    const verifying = state.stage === 'verify';
+    this.otpPanel.hidden = !verifying;
+    this.emailInput.closest('.account-login-email-field')?.toggleAttribute('hidden', verifying);
+    this.otpEmail.textContent = state.email || '—';
+    this.emailInput.disabled = state.busy;
+    this.otpInput.disabled = state.busy || !verifying;
+    this.otpResendButton.disabled = state.busy || state.cooldownSeconds > 0;
+    this.otpResendButton.textContent = state.cooldownSeconds > 0
+      ? `重新发送验证码（${state.cooldownSeconds}秒）`
+      : '重新发送验证码';
+    this.otpChangeButton.disabled = state.busy;
+    this.dialogLoginButton.textContent = verifying ? '验证并登录' : '发送验证码';
+    this.authMessage.dataset.state = state.messageState;
+    this.authMessage.textContent = state.message;
   }
 
   private async signOut(): Promise<void> {

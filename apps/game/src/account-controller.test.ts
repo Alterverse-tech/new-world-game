@@ -4,7 +4,6 @@ import {
   AccountController,
   accountDisplayName,
   authRedirectUrl,
-  isAccountPasswordValid,
   normalizeAccountEmail,
   parseAuthConfig,
 } from './account-controller';
@@ -54,16 +53,6 @@ function bareController(options: {
   return controller;
 }
 
-function authActions(controller: AccountController): {
-  signInWithPassword(): Promise<void>;
-  signUp(): Promise<void>;
-} {
-  return controller as unknown as {
-    signInWithPassword(): Promise<void>;
-    signUp(): Promise<void>;
-  };
-}
-
 function sessionActions(controller: AccountController): {
   synchronizeSession(session: Session): Promise<void>;
 } {
@@ -72,18 +61,21 @@ function sessionActions(controller: AccountController): {
   };
 }
 
-function initializedController(authService: object): AccountController {
-  const element = () => ({
+function initializedController(authService: object) {
+  const listeners = new Map<string, EventListener>();
+  const element = (id: string) => ({
     dataset: {},
     textContent: '',
     value: '',
     disabled: false,
     open: false,
+    hidden: false,
     classList: { toggle: vi.fn() },
-    addEventListener: vi.fn(),
+    addEventListener: vi.fn((type: string, listener: EventListener) => listeners.set(`${id}:${type}`, listener)),
     focus: vi.fn(),
     showModal: vi.fn(),
     close: vi.fn(),
+    closest: vi.fn(() => ({ toggleAttribute: vi.fn() })),
   });
   const elements = new Map([
     'account-panel',
@@ -97,17 +89,21 @@ function initializedController(authService: object): AccountController {
     'account-auth-dialog',
     'account-auth-form',
     'account-email-input',
-    'account-password-input',
+    'account-login-otp-panel',
+    'account-login-otp-email',
+    'account-login-otp-input',
+    'account-login-otp-resend',
+    'account-login-otp-change',
     'account-login-btn',
     'account-register-btn',
     'account-auth-close',
     'account-auth-message',
     'start-btn',
     'lobby-asset-account-note',
-  ].map((id) => [id, element()]));
+  ].map((id) => [id, element(id)]));
   vi.stubGlobal('document', { getElementById: (id: string) => elements.get(id) ?? null });
   vi.stubGlobal('window', {
-    location: { href: 'https://altverse.fun/' },
+    location: { href: 'https://altverse.fun/', origin: 'https://altverse.fun', reload: vi.fn() },
     history: { replaceState: vi.fn() },
     setTimeout: vi.fn(),
     requestAnimationFrame: vi.fn(),
@@ -115,7 +111,12 @@ function initializedController(authService: object): AccountController {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
     account: { signedIn: false },
   }), { status: 200 })));
-  return new AccountController(authService as never);
+  vi.stubGlobal('sessionStorage', {
+    getItem: vi.fn(() => null),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+  });
+  return { controller: new AccountController(authService as never), elements, listeners };
 }
 
 afterEach(() => {
@@ -189,14 +190,6 @@ describe('account credentials', () => {
     ]) expect(normalizeAccountEmail(invalid)).toBeNull();
   });
 
-  it('accepts passwords containing 8–72 characters without trimming or exposing them', () => {
-    expect(isAccountPasswordValid('1234567')).toBe(false);
-    expect(isAccountPasswordValid('12345678')).toBe(true);
-    expect(isAccountPasswordValid('🔐'.repeat(8))).toBe(true);
-    expect(isAccountPasswordValid('x'.repeat(72))).toBe(true);
-    expect(isAccountPasswordValid('x'.repeat(73))).toBe(false);
-    expect(isAccountPasswordValid(null)).toBe(false);
-  });
 });
 
 describe('account display name', () => {
@@ -240,7 +233,7 @@ describe('email auth operations', () => {
       publishableKey: 'sb_publishable_example',
     }));
     const getClient = vi.fn(async () => client);
-    const controller = initializedController({ loadConfig, getClient });
+    const { controller } = initializedController({ loadConfig, getClient });
 
     await controller.initialize();
 
@@ -277,99 +270,31 @@ describe('email auth operations', () => {
     expect(JSON.stringify(controller.getTextState())).not.toContain('private-access-token');
   });
 
-  it('signs in with normalized email/password and forwards only the returned session for exchange', async () => {
-    const reload = vi.fn();
-    vi.stubGlobal('window', { location: { reload } });
-    const passwordInput = { value: 'correct horse battery staple', focus: vi.fn() };
-    const emailInput = { value: ' Player@Example.COM ', focus: vi.fn() };
-    const session = { access_token: 'private-access-token', user: user({ email: 'player@example.com' }) };
-    const signInWithPassword = vi.fn(async () => ({ data: { session }, error: null }));
-    const synchronize = vi.fn(async () => {});
-    const close = vi.fn();
-    const controller = bareController({ mode: 'guest' });
-    Object.assign(controller, {
-      client: { auth: { signInWithPassword } },
-      emailInput,
-      passwordInput,
-      enqueueSessionSync: synchronize,
-      closeAuthDialog: close,
-    });
+  it('wires form submission to the source-owned OTP login flow', async () => {
+    const session = { access_token: 'private-access-token', user: user({ email: 'player@example.com' }) } as Session;
+    const sendOtp = vi.fn(async () => {});
+    const verifyOtp = vi.fn(async () => session);
+    const exchangeSession = vi.fn(async () => {});
+    const { elements, listeners } = initializedController({ sendOtp, verifyOtp, exchangeSession });
+    const email = elements.get('account-email-input')!;
+    email.value = ' Player@Example.COM ';
+    const submit = listeners.get('account-auth-form:submit')!;
+    const preventDefault = vi.fn();
 
-    await authActions(controller).signInWithPassword();
+    submit({ preventDefault } as unknown as Event);
+    await vi.waitFor(() => expect(sendOtp).toHaveBeenCalledWith('player@example.com', 'https://altverse.fun/'));
 
-    expect(signInWithPassword).toHaveBeenCalledWith({
-      email: 'player@example.com',
-      password: 'correct horse battery staple',
-    });
-    expect(synchronize).toHaveBeenCalledWith(session);
-    expect(close).toHaveBeenCalledWith(true);
-    expect(reload).toHaveBeenCalledOnce();
-    expect(passwordInput.value).toBe('');
-    expect(JSON.stringify(controller.getTextState())).not.toContain('private-access-token');
-  });
-
-  it('registers with a root-domain confirmation redirect and waits safely for email confirmation', async () => {
-    vi.stubGlobal('window', { location: { origin: 'https://altverse.fun' } });
-    const passwordInput = { value: 'register-password', focus: vi.fn() };
-    const emailInput = { value: 'new-player@example.com', focus: vi.fn() };
-    const signUp = vi.fn(async () => ({ data: { session: null, user: user() }, error: null }));
-    const controller = bareController({ mode: 'guest' });
-    Object.assign(controller, {
-      client: { auth: { signUp } },
-      emailInput,
-      passwordInput,
-    });
-
-    await authActions(controller).signUp();
-
-    expect(signUp).toHaveBeenCalledWith({
-      email: 'new-player@example.com',
-      password: 'register-password',
-      options: { emailRedirectTo: 'https://altverse.fun/' },
-    });
-    expect(controller.getTextState()).toMatchObject({ mode: 'guest', phase: 'guest' });
-    expect(passwordInput.value).toBe('');
-  });
-
-  it('reloads after an immediately confirmed registration so the account profile is applied', async () => {
-    const reload = vi.fn();
-    vi.stubGlobal('window', { location: { origin: 'https://altverse.fun', reload } });
-    const passwordInput = { value: 'register-password', focus: vi.fn() };
-    const emailInput = { value: 'new-player@example.com', focus: vi.fn() };
-    const session = { access_token: 'private-access-token', user: user({ email: 'new-player@example.com' }) };
-    const signUp = vi.fn(async () => ({ data: { session, user: session.user }, error: null }));
-    const synchronize = vi.fn(async () => {});
-    const close = vi.fn();
-    const controller = bareController({ mode: 'guest' });
-    Object.assign(controller, {
-      client: { auth: { signUp } },
-      emailInput,
-      passwordInput,
-      enqueueSessionSync: synchronize,
-      closeAuthDialog: close,
-    });
-
-    await authActions(controller).signUp();
-
-    expect(synchronize).toHaveBeenCalledWith(session);
-    expect(close).toHaveBeenCalledWith(true);
-    expect(reload).toHaveBeenCalledOnce();
-    expect(passwordInput.value).toBe('');
-  });
-
-  it('does not send invalid credentials to Supabase', async () => {
-    const signInWithPassword = vi.fn();
-    const controller = bareController({ mode: 'guest' });
-    Object.assign(controller, {
-      client: { auth: { signInWithPassword } },
-      emailInput: { value: 'not-an-email', focus: vi.fn() },
-      passwordInput: { value: 'short', focus: vi.fn() },
-    });
-
-    await authActions(controller).signInWithPassword();
-
-    expect(signInWithPassword).not.toHaveBeenCalled();
-    expect(controller.getTextState().phase).toBe('error');
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(elements.get('account-login-otp-panel')!.hidden).toBe(false);
+    expect(elements.get('account-login-otp-email')!.textContent).toBe('player@example.com');
+    const token = elements.get('account-login-otp-input')!;
+    token.value = '123456';
+    const loginClick = listeners.get('account-login-btn:click')!;
+    loginClick({ preventDefault } as unknown as Event);
+    await vi.waitFor(() => expect(verifyOtp).toHaveBeenCalledWith('player@example.com', '123456'));
+    await vi.waitFor(() => expect(exchangeSession).toHaveBeenCalledWith(session));
+    await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalledOnce());
+    expect(elements.get('account-register-btn')!.addEventListener).not.toHaveBeenCalled();
   });
 });
 

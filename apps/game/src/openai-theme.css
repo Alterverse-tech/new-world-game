@@ -1800,6 +1800,87 @@ input:disabled {
 .avatar-upload-status[data-state="loading"],
 .avatar-upload-status[data-state="uploading"] { color: var(--wr-warning); }
 
+.account-password-legacy[hidden],
+#account-reset-open[hidden],
+#account-register-btn[hidden],
+.account-login-email-field[hidden],
+.account-login-otp-panel[hidden] {
+  display: none;
+}
+
+.account-login-otp-panel {
+  display: grid;
+  gap: 16px;
+}
+
+/* The legacy register action is hidden in the OTP flow, so the only
+   remaining primary action should span the full form width. */
+.account-auth-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.account-login-otp-target {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  color: var(--wr-muted);
+  border: 1px solid var(--wr-line);
+  border-radius: var(--wr-radius-sm);
+  background: var(--wr-surface-soft);
+  font-size: 11px;
+}
+
+.account-login-otp-target strong {
+  overflow: hidden;
+  color: var(--wr-ink);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-login-otp-field input {
+  text-align: center;
+  font-family: var(--wr-mono);
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: .32em;
+}
+
+.account-login-otp-field input::placeholder {
+  font-weight: 450;
+  letter-spacing: .32em;
+}
+
+.account-login-otp-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+.account-login-otp-links button {
+  padding: 0;
+  color: var(--wr-muted);
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.account-login-otp-links button:hover:not(:disabled),
+.account-login-otp-links button:focus-visible {
+  color: var(--wr-ink);
+}
+
+.account-login-otp-links button:disabled {
+  color: var(--wr-faint);
+  cursor: not-allowed;
+}
+
 .custom-avatar-settings {
   border-top-color: var(--wr-line);
 }
