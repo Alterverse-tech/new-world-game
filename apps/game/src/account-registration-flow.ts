@@ -17,6 +17,8 @@ interface Dependencies { port: AccountRegistrationPort; service: RegistrationSer
 export class AccountRegistrationFlow {
   private state: AccountRegistrationState = { stage: 'details', busy: false, email: '', cooldownSeconds: 0, message: DEFAULT_MESSAGE, messageState: 'guest' };
   private password = '';
+  private verifiedSession: Session | null = null;
+  private passwordSet = false;
   public constructor(private readonly d: Dependencies) { this.render(); }
   public getState(): Readonly<AccountRegistrationState> { return { ...this.state }; }
   public open(prefilledEmail = ''): void {
@@ -30,6 +32,7 @@ export class AccountRegistrationFlow {
   public async submit(): Promise<void> {
     if (this.state.busy) return;
     if (this.state.stage === 'details') { await this.send(false); return; }
+    if (this.verifiedSession) { await this.finishVerifiedRegistration(); return; }
     const token = this.d.port.readToken().trim();
     if (!SIX_DIGITS.test(token)) { this.set({ message: '请输入邮件中的 6 位验证码。', messageState: 'error' }); this.d.port.focusToken(); return; }
     await this.verify(token);
@@ -59,11 +62,22 @@ export class AccountRegistrationFlow {
   }
   private async verify(token: string): Promise<void> {
     this.set({ busy: true, message: '正在验证邮箱并创建账号…', messageState: 'loading' });
-    try { const session = await this.d.service.verifyOtp(this.state.email, token); await this.d.service.setPassword(this.password); await this.d.service.exchangeSession(session); this.clear(); this.remove(); this.set({ stage: 'complete', cooldownSeconds: 0, message: '注册完成，正在进入 WhiteRoom…', messageState: 'success' }); await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 700)); this.d.reload(); }
+    try { this.verifiedSession = await this.d.service.verifyOtp(this.state.email, token); await this.finishVerifiedRegistration(); }
     catch { this.set({ stage: 'verify', busy: false, message: '验证码验证失败，请检查后重试。', messageState: 'error' }); this.d.port.focusToken(); }
     finally { if (this.state.stage !== 'complete') this.set({ busy: false }); }
   }
-  private clear(): void { this.password = ''; this.d.port.clearSecrets(); }
+  private async finishVerifiedRegistration(): Promise<void> {
+    if (!this.verifiedSession) return;
+    this.set({ busy: true, message: '正在完成账号创建…', messageState: 'loading' });
+    try {
+      if (!this.passwordSet) { await this.d.service.setPassword(this.password); this.passwordSet = true; }
+      await this.d.service.exchangeSession(this.verifiedSession);
+      this.clear(); this.remove(); this.verifiedSession = null; this.passwordSet = false;
+      this.set({ stage: 'complete', cooldownSeconds: 0, message: '注册完成，正在进入 WhiteRoom…', messageState: 'success' });
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 700)); this.d.reload();
+    } catch { this.set({ stage: 'verify', busy: false, message: '账号创建未完成，请重试。', messageState: 'error' }); this.d.port.focusToken(); }
+  }
+  private clear(): void { this.password = ''; this.verifiedSession = null; this.passwordSet = false; this.d.port.clearSecrets(); }
   private remaining(): number { try { const raw = this.d.storage.get(OTP_COOLDOWN_KEY); const value = raw ? JSON.parse(raw) as { email?: unknown; until?: unknown } : null; return value?.email === this.state.email && typeof value.until === 'number' ? Math.max(0, Math.ceil((value.until - this.d.now()) / 1000)) : 0; } catch { return 0; } }
   private save(): void { try { this.d.storage.set(OTP_COOLDOWN_KEY, JSON.stringify({ email: this.state.email, until: this.d.now() + OTP_COOLDOWN_MS })); } catch { /* optional storage */ } }
   private remove(): void { try { this.d.storage.delete(OTP_COOLDOWN_KEY); } catch { /* optional storage */ } }
