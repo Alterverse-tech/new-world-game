@@ -19,7 +19,7 @@
     <script src="./assets/game-experience-20260721.js?v=game1" defer></script>
     <script src="./assets/entry-terminal-20260723.js?v=entry1" defer></script>
     <script src="./assets/hud-fusion-20260723.js?v=hud4" defer></script>
-    <script type="module" crossorigin src="./assets/index-BICRz_YN.js?v=world-cycle2"></script>
+    <script type="module" crossorigin src="./assets/index-BICRz_YN.js?v=world-cycle3"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-7Eajp7Zf.css">
     <link rel="stylesheet" href="./assets/entry-terminal-20260723.css?v=entry6">
     <link rel="stylesheet" href="./assets/player-stats-20260721.css?v=stats4">
@@ -479,7 +479,7 @@
         <div class="lobby-create-actions">
         <details id="lobby-prop-creator" class="lobby-prop-creator">
           <summary>
-            <span><b>告诉 Codex 想创作什么</b><small>需求会发送到我的这台 Mac，并自动调用大厅物件 Skill</small></span>
+            <span><b>告诉 Codex 想创作什么</b><small>描述想生成的静态 3D 物件，完成后进入我的物件</small></span>
             <i aria-hidden="true">＋</i>
           </summary>
           <form id="lobby-prop-creator-form" novalidate>
@@ -489,18 +489,18 @@
                 id="lobby-prop-prompt"
                 rows="4"
                 maxlength="600"
-                placeholder="例如：做一辆两个人能轮流驾驶的复古小汽车，按 E 上下车，车灯会随速度变亮"
+                placeholder="例如：一个低多边形风格、带蓝色发光纹理的能量水晶"
               ></textarea>
             </label>
             <div class="lobby-prop-creator-meta">
-              <p id="lobby-prop-worker" data-state="offline"><span aria-hidden="true"></span> 正在检查这台 Mac</p>
+              <p id="lobby-prop-worker" data-state="offline"><span aria-hidden="true"></span> 正在检查资产生成服务</p>
               <small><span id="lobby-prop-prompt-count">0</span> / 600</small>
             </div>
-            <p class="lobby-prop-review-note">Codex 会在隔离副本里生成并安全校验；通过后会自动合并、构建并部署到大厅目录，审核后台只保留发布历史和失败记录。</p>
-            <p id="lobby-prop-creator-status" data-state="idle" aria-live="polite">输入描述后即可提交创作任务</p>
+            <p class="lobby-prop-review-note">Asset Center 会生成并校验 GLB；完成后自动安全导入当前账号的“我的物件”。</p>
+            <p id="lobby-prop-creator-status" data-state="idle" aria-live="polite">输入描述后即可开始生成</p>
             <div class="lobby-prop-creator-actions">
               <button id="lobby-prop-login" type="button" hidden>登录邮箱账号</button>
-              <button id="lobby-prop-submit" type="submit">发送到这台 Mac 的 Codex</button>
+              <button id="lobby-prop-submit" type="submit">开始生成</button>
             </div>
             <section class="lobby-prop-jobs" aria-labelledby="lobby-prop-jobs-title">
               <div class="lobby-prop-jobs-head">

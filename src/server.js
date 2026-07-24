@@ -16,6 +16,8 @@ import {
   verifyPreviewToken,
 } from './auth.js';
 import { SupabaseAuthVerifier } from './supabase-auth.js';
+import { AssetCenterOpenApiClient } from './asset-center-openapi.js';
+import { AssetCenterPropCreationService } from './asset-center-prop-creations.js';
 import {
   AvatarStore,
   AvatarUploadGate,
@@ -869,13 +871,15 @@ async function getAdminLevel(response, context, id) {
 }
 
 function requirePropCreationFeature(context) {
-  if (!context.propWorkerToken) {
-    throw new HttpError(503, 'prop_creation_unavailable', 'The local Codex bridge is not configured');
+  if (!context.assetCenterPropCreationService && !context.propWorkerToken) {
+    throw new HttpError(503, 'prop_creation_unavailable', 'Asset Center generation is not configured');
   }
 }
 
 function requirePropWorker(request, context) {
-  requirePropCreationFeature(context);
+  if (!context.propWorkerToken) {
+    throw new HttpError(503, 'prop_creation_unavailable', 'The legacy Codex worker is not configured');
+  }
   requireBearer(request, context.propWorkerToken);
 }
 
@@ -905,50 +909,78 @@ async function createPropCreation(request, response, context) {
     required: ['prompt', 'channel'],
   });
   const channel = validateLobbyChannel(body.channel);
-  const record = await context.propCreationStore.create({
-    ownerId: session.ownerId,
-    prompt: body.prompt,
-    channel,
-    ip: requestIp(request),
-    autoPublish: context.propAutoPublish,
-  });
+  const job = context.assetCenterPropCreationService
+    ? await context.assetCenterPropCreationService.create({
+      ownerId: session.ownerId,
+      prompt: body.prompt,
+      channel,
+      ip: requestIp(request),
+    })
+    : context.propCreationStore.ownerView(await context.propCreationStore.create({
+      ownerId: session.ownerId,
+      prompt: body.prompt,
+      channel,
+      ip: requestIp(request),
+      autoPublish: context.propAutoPublish,
+    }));
   await recordDreamActivity(context, session.ownerId, 'wishes');
   sendPrivateLobbyJson(response, 202, {
-    job: context.propCreationStore.ownerView(record),
-    worker: context.propCreationStore.workerStatus(),
+    job,
+    worker: context.assetCenterPropCreationService?.workerStatus()
+      ?? context.propCreationStore.workerStatus(),
   });
 }
 
 async function listOwnerPropCreations(request, response, context) {
+  requirePropCreationFeature(context);
   requireSameOriginMutation(request);
   const session = requireAccountSession(request, context);
+  const [assetCenterJobs, legacyJobs] = await Promise.all([
+    context.assetCenterPropCreationService?.listOwner(session.ownerId) ?? [],
+    context.propCreationStore.listOwner(session.ownerId),
+  ]);
   sendPrivateLobbyJson(response, 200, {
     schemaVersion: 1,
-    jobs: await context.propCreationStore.listOwner(session.ownerId),
-    worker: context.propCreationStore.workerStatus(),
+    jobs: [...assetCenterJobs, ...legacyJobs]
+      .sort((left, right) => right.submittedAt.localeCompare(left.submittedAt))
+      .slice(0, 25),
+    worker: context.assetCenterPropCreationService?.workerStatus()
+      ?? context.propCreationStore.workerStatus(),
   });
 }
 
 async function getOwnerPropCreation(request, response, context, id) {
+  requirePropCreationFeature(context);
   requireSameOriginMutation(request);
   const session = requireAccountSession(request, context);
   if (!PROP_CREATION_ID_PATTERN.test(id)) {
     throw new HttpError(404, 'prop_creation_not_found', 'Prop creation was not found');
   }
-  const record = await context.propCreationStore.get(id);
-  if (!record || record.ownerId !== session.ownerId) {
-    throw new HttpError(404, 'prop_creation_not_found', 'Prop creation was not found');
+  const assetCenterJob = await context.assetCenterPropCreationService?.get(id, session.ownerId);
+  if (assetCenterJob) {
+    sendPrivateLobbyJson(response, 200, {
+      job: assetCenterJob,
+      worker: context.assetCenterPropCreationService.workerStatus(),
+    });
+    return;
   }
+  const record = await context.propCreationStore.get(id);
+  if (!record || record.ownerId !== session.ownerId) throw new HttpError(404, 'prop_creation_not_found', 'Prop creation was not found');
   sendPrivateLobbyJson(response, 200, {
     job: context.propCreationStore.ownerView(record),
-    worker: context.propCreationStore.workerStatus(),
+    worker: context.assetCenterPropCreationService?.workerStatus()
+      ?? context.propCreationStore.workerStatus(),
   });
 }
 
 async function cancelOwnerPropCreation(request, response, context, id) {
+  requirePropCreationFeature(context);
   requireSameOriginMutation(request);
   const session = requireAccountSession(request, context);
-  const job = await context.propCreationStore.cancel(id, session.ownerId);
+  const current = await context.assetCenterPropCreationService?.getStored(id, session.ownerId);
+  const job = current
+    ? await context.assetCenterPropCreationService.cancel(id, session.ownerId)
+    : await context.propCreationStore.cancel(id, session.ownerId);
   sendPrivateLobbyJson(response, 200, { job });
 }
 
@@ -2025,11 +2057,15 @@ async function route(request, response, context) {
 
   if (request.method === 'GET' && pathname === '/api/account/prop-creations/config') {
     sendPrivateLobbyJson(response, 200, {
-      enabled: Boolean(context.propWorkerToken),
+      enabled: Boolean(context.assetCenterPropCreationService || context.propWorkerToken),
       requiresAccount: true,
       maximumPromptCharacters: MAX_PROP_PROMPT_CHARACTERS,
-      publicationMode: context.propAutoPublish ? 'automatic' : 'manual',
-      worker: context.propCreationStore.workerStatus(),
+      publicationMode: context.assetCenterPropCreationService || context.propAutoPublish
+        ? 'automatic'
+        : 'manual',
+      worker: context.assetCenterPropCreationService?.workerStatus() ?? {
+        ...context.propCreationStore.workerStatus(),
+      },
     });
     return;
   }
@@ -2596,6 +2632,30 @@ export async function createApplication(options = {}) {
     idFactory: options.lobbyAssetIdFactory,
   });
   await lobbyAssetStore.initialize();
+  const assetCenterOrigin = options.assetCenter?.origin
+    ?? process.env.WHITEROOM_ASSET_CENTER_ORIGIN
+    ?? null;
+  const assetCenterServiceToken = options.assetCenter?.serviceToken
+    ?? process.env.WHITEROOM_ASSET_CENTER_SERVICE_TOKEN
+    ?? null;
+  if (
+    !options.assetCenterClient
+    && !options.assetCenterPropCreationService
+    && Boolean(assetCenterOrigin) !== Boolean(assetCenterServiceToken)
+  ) {
+    throw new Error(
+      'WHITEROOM_ASSET_CENTER_ORIGIN and WHITEROOM_ASSET_CENTER_SERVICE_TOKEN must be configured together',
+    );
+  }
+  const assetCenterClient = options.assetCenterClient
+    ?? (assetCenterOrigin && assetCenterServiceToken
+      ? new AssetCenterOpenApiClient({
+        origin: assetCenterOrigin,
+        serviceToken: assetCenterServiceToken,
+        fetchImpl: options.assetCenter?.fetchImpl,
+        timeoutMs: options.assetCenter?.timeoutMs,
+      })
+      : null);
   const lobbyStore = options.lobbyStore ?? new LobbyStore({
     dataDirectory: store.dataDirectory ?? dataDirectory,
     catalog: lobbyCatalog,
@@ -2643,6 +2703,33 @@ export async function createApplication(options = {}) {
     for (const id of lobbyAssetStore.catalogIds) lobbyStore.catalogIds.add(id);
   }
   await lobbyStore.initialize();
+  const assetCenterPropCreationService = options.assetCenterPropCreationService
+    ?? (assetCenterClient
+      ? new AssetCenterPropCreationService({
+        dataDirectory: store.dataDirectory ?? dataDirectory,
+        client: assetCenterClient,
+        lobbyAssetStore,
+        registerCatalogId: (id) => lobbyStore.catalogIds?.add(id),
+        clock,
+        idFactory: options.assetCenterPropCreationIdFactory,
+        maxActivePerOwner: positiveIntegerSetting(
+          options.propCreationLimits?.maxActivePerOwner ?? process.env.WHITEROOM_PROP_MAX_ACTIVE_PER_OWNER,
+          2,
+          { name: 'WHITEROOM_PROP_MAX_ACTIVE_PER_OWNER', minimum: 1, maximum: 20 },
+        ),
+        maxDailyPerOwner: positiveIntegerSetting(
+          options.propCreationLimits?.maxDailyPerOwner ?? process.env.WHITEROOM_PROP_MAX_DAILY_PER_OWNER,
+          3,
+          { name: 'WHITEROOM_PROP_MAX_DAILY_PER_OWNER', minimum: 1, maximum: 100 },
+        ),
+        maxDailyPerIp: positiveIntegerSetting(
+          options.propCreationLimits?.maxDailyPerIp ?? process.env.WHITEROOM_PROP_MAX_DAILY_PER_IP,
+          12,
+          { name: 'WHITEROOM_PROP_MAX_DAILY_PER_IP', minimum: 1, maximum: 1_000 },
+        ),
+      })
+      : null);
+  await assetCenterPropCreationService?.initialize?.();
   const lobbyRateLimiter = options.lobbyRateLimiter ?? new LobbyRateLimiter({
     clock,
     windowMs: positiveIntegerSetting(
@@ -2764,6 +2851,8 @@ export async function createApplication(options = {}) {
     avatarUploadRateLimiter,
     avatarUploadGate,
     multiplayerHub: null,
+    assetCenterClient,
+    assetCenterPropCreationService,
     propCreationStore,
     foundryStore,
     propWorkerToken,
@@ -2873,6 +2962,8 @@ export async function createApplication(options = {}) {
     lobbyEvents,
     lobbyAssetStore,
     avatarStore,
+    assetCenterClient,
+    assetCenterPropCreationService,
     propCreationStore,
     multiplayerHub,
   };

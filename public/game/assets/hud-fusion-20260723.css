@@ -1024,3 +1024,8 @@ body.lobby-editor-resizing * {
     transition: none;
   }
 }
+
+.lobby-prop-job header span[data-state="published"] {
+  color: var(--hud-success, #277365);
+  background: rgba(205, 239, 229, 0.68);
+}
