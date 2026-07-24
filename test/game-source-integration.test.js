@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { access, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -12,6 +12,18 @@ const appRoot = fileURLToPath(new URL('apps/game/', root));
 const appRequire = createRequire(new URL('apps/game/package.json', root));
 const typescript = appRequire('typescript');
 const currentSupabaseOrigin = 'https://uzshphuobuaeyadxgriv.supabase.co';
+const overlayAssets = [
+  'account-login-otp-20260722.js',
+  'account-register-20260721.js',
+  'account-reset-bootstrap-20260721.js',
+  'account-reset-20260721.js',
+  'player-stats-20260721.js',
+  'game-experience-20260721.js',
+  'account-login-otp-20260722.css',
+  'account-register-20260721.css',
+  'account-reset-20260721.css',
+  'player-stats-20260721.css',
+];
 
 function withoutComments(source, kind = 'source') {
   if (kind === 'html') return source.replace(/<!--[\s\S]*?-->/gu, '');
@@ -285,6 +297,111 @@ function decodeNonBinaryUtf8(buffer) {
   return /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/u.test(text) ? null : text;
 }
 
+function runtimeInputCommentKind(label) {
+  if (/\.css$/iu.test(label)) return 'css';
+  if (/\.(?:html?|svg)$/iu.test(label)) return 'html';
+  return 'source';
+}
+
+function assertRuntimeInputOwnership(inputs) {
+  for (const input of inputs) {
+    const executableSource = input.text === null
+      ? ''
+      : withoutComments(input.text, runtimeInputCommentKind(input.label));
+    for (const asset of overlayAssets) {
+      assert.ok(
+        !input.label.includes(asset) && !executableSource.includes(asset),
+        `${input.label} contains legacy overlay ${asset}`,
+      );
+    }
+  }
+}
+
+function runtimeJavaScriptSources(input) {
+  if (input.text === null) return [];
+  if (input.script === true || /\.[cm]?[jt]sx?$/u.test(input.label)) {
+    return [{ label: input.label, source: input.text }];
+  }
+  if (!/\.(?:html?|svg)$/iu.test(input.label)) return [];
+  const scripts = [];
+  for (const [index, match] of [...input.text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/giu)].entries()) {
+    const attributes = match[1];
+    if (/\bsrc\s*=/iu.test(attributes)) continue;
+    const typeMatch = attributes.match(/\btype\s*=\s*(["'])(.*?)\1/iu);
+    const type = typeMatch?.[2].trim().toLowerCase() ?? '';
+    if (type && !['module', 'text/javascript', 'application/javascript'].includes(type)) continue;
+    scripts.push({ label: `${input.label}#inline-script-${index + 1}`, source: match[2] });
+  }
+  return scripts;
+}
+
+function assertNoGlobalWebSocketReplacement(inputs) {
+  for (const input of inputs) {
+    for (const executable of runtimeJavaScriptSources(input)) {
+      assert.equal(
+        hasGlobalWebSocketReplacement(parseSourceFile(executable.source, executable.label)),
+        false,
+        `${executable.label} replaces the global WebSocket`,
+      );
+    }
+  }
+}
+
+function rollupOutputRuntimeInputs(output) {
+  return output.map((entry) => {
+    if (entry.type === 'chunk') {
+      return {
+        label: `vite-output/${entry.fileName}`,
+        logicalPath: null,
+        realPath: null,
+        text: entry.code,
+        publicFile: false,
+        script: true,
+      };
+    }
+    const buffer = typeof entry.source === 'string' ? Buffer.from(entry.source) : Buffer.from(entry.source);
+    return {
+      label: `vite-output/${entry.fileName}`,
+      logicalPath: null,
+      realPath: null,
+      text: decodeNonBinaryUtf8(buffer),
+      publicFile: false,
+      script: /\.[cm]?[jt]sx?$/u.test(entry.fileName),
+    };
+  });
+}
+
+function assertNoUnexpectedExternalModules(modules, allowlist = new Set()) {
+  const unexpected = modules
+    .filter((module) => module.external && !allowlist.has(module.id))
+    .map((module) => module.id);
+  assert.deepEqual(unexpected, [], `unexpected external runtime module: ${unexpected.join(', ')}`);
+}
+
+function assertNoUnexpectedExternalChunkImports(output, allowlist = new Set()) {
+  const emittedFiles = new Set(output.map((entry) => entry.fileName));
+  const unexpected = [];
+  for (const entry of output) {
+    if (entry.type !== 'chunk') continue;
+    for (const specifier of [...entry.imports, ...entry.dynamicImports]) {
+      const resolvedSpecifier = specifier.startsWith('.')
+        ? posix.normalize(posix.join(posix.dirname(entry.fileName), specifier))
+        : specifier.replace(/^\//u, '');
+      if (!emittedFiles.has(specifier) && !emittedFiles.has(resolvedSpecifier) && !allowlist.has(specifier)) {
+        unexpected.push(`${entry.fileName} -> ${specifier}`);
+      }
+    }
+  }
+  assert.deepEqual(unexpected, [], `unexpected external emitted import: ${unexpected.join(', ')}`);
+}
+
+function rollupBuildOutput(result) {
+  const builds = Array.isArray(result) ? result : [result];
+  const output = builds.flatMap((buildResult) => buildResult?.output ?? []);
+  assert.ok(output.length > 0, 'Vite write:false build must return Rollup output');
+  return output;
+}
+
 function displayPath(path) {
   const repositoryRelative = relative(repositoryRoot, path);
   const displayed = pathIsContained(repositoryRoot, path) ? repositoryRelative : path;
@@ -316,7 +433,7 @@ function viteRuntimeModuleFiles() {
       },
     };
     const { build } = await import(pathToFileURL(appRequire.resolve('vite')).href);
-    await build({
+    const buildResult = await build({
       root: appRoot,
       configFile: join(appRoot, 'vite.config.ts'),
       logLevel: 'silent',
@@ -325,10 +442,12 @@ function viteRuntimeModuleFiles() {
       build: { write: false },
     });
     assert.ok(capturedModules.length > 0, 'Vite build must expose a non-empty Rollup module graph');
+    assertNoUnexpectedExternalModules(capturedModules);
+    const output = rollupBuildOutput(buildResult);
+    assertNoUnexpectedExternalChunkImports(output);
     const files = [];
     const seen = new Set();
     for (const module of capturedModules) {
-      if (module.external) continue;
       const logicalPath = viteModuleIdPath(module.id);
       if (!logicalPath) continue;
       const resolvedPath = await realpath(logicalPath);
@@ -338,7 +457,7 @@ function viteRuntimeModuleFiles() {
       seen.add(key);
       files.push({ logicalPath, realPath: resolvedPath });
     }
-    return files;
+    return { files, outputInputs: rollupOutputRuntimeInputs(output) };
   })().catch((error) => {
     viteModuleGraphPromise = undefined;
     throw error;
@@ -391,7 +510,7 @@ let runtimeBuildInputsPromise;
 
 function runtimeBuildInputs() {
   runtimeBuildInputsPromise ??= (async () => {
-    const graphFiles = await viteRuntimeModuleFiles();
+    const runtimeBuild = await viteRuntimeModuleFiles();
     const explicitFiles = [
       join(appRoot, 'index.html'),
       join(appRoot, 'package.json'),
@@ -399,7 +518,7 @@ function runtimeBuildInputs() {
     ].map((logicalPath) => ({ logicalPath, realPath: logicalPath }));
     const files = [];
     const seen = new Set();
-    for (const file of [...graphFiles, ...explicitFiles]) {
+    for (const file of [...runtimeBuild.files, ...explicitFiles]) {
       const resolvedPath = await realpath(file.realPath);
       const key = normalizedPathKey(resolvedPath);
       if (seen.has(key)) continue;
@@ -413,6 +532,7 @@ function runtimeBuildInputs() {
         publicFile: false,
       });
     }
+    files.push(...runtimeBuild.outputInputs);
     files.push(...await publicRuntimeTextFiles());
     return files;
   })().catch((error) => {
@@ -434,6 +554,43 @@ test('runtime build input inventory includes Vite public text assets but not bin
   assert.ok(labels.includes('apps/game/vite.config.ts'));
   assert.ok(labels.includes('apps/game/src/main.ts'));
   assert.ok(labels.some((label) => label.includes('/node_modules/three/')));
+  assert.ok(labels.some((label) => label.startsWith('vite-output/')));
+});
+
+test('emitted virtual and transformed runtime code cannot bypass ownership checks', () => {
+  const virtualModuleOutput = [{
+    type: 'chunk',
+    fileName: 'assets/virtual-entry.js',
+    code: "window.WebSocket = class FakeSocket {}; fetch('account-login-otp-20260722.js');",
+    modules: { '\0virtual:overlay-injection': {} },
+  }];
+  const inputs = rollupOutputRuntimeInputs(virtualModuleOutput);
+  assert.throws(() => assertRuntimeInputOwnership(inputs), /legacy overlay/u);
+  assert.throws(() => assertNoGlobalWebSocketReplacement(inputs), /global WebSocket/u);
+  const emittedCss = rollupOutputRuntimeInputs([{
+    type: 'asset',
+    fileName: 'assets/injected.css',
+    source: '@import url(//cdn.example/account-reset-20260721.css);',
+  }]);
+  assert.throws(() => assertRuntimeInputOwnership(emittedCss), /legacy overlay/u);
+  const transformedHtml = rollupOutputRuntimeInputs([{
+    type: 'asset',
+    fileName: 'index.html',
+    source: '<script type="module">globalThis.WebSocket = FakeSocket;</script>',
+  }]);
+  assert.throws(() => assertNoGlobalWebSocketReplacement(transformedHtml), /global WebSocket/u);
+});
+
+test('unexpected external runtime modules and emitted imports are rejected', () => {
+  assert.throws(() => assertNoUnexpectedExternalModules([
+    { id: 'https://cdn.example/runtime.js', external: true },
+  ]), /external runtime module/u);
+  assert.throws(() => assertNoUnexpectedExternalChunkImports([{
+    type: 'chunk',
+    fileName: 'assets/entry.js',
+    imports: ['https://cdn.example/runtime.js'],
+    dynamicImports: [],
+  }]), /external emitted import/u);
 });
 
 test('public inventory scans UTF-8 text regardless of extension and skips binary by content', async (context) => {
@@ -649,41 +806,9 @@ test('game source owns every current production overlay behavior', async () => {
   assert.equal(hasCallExpression(gameSourceFile, 'quitWhiteRoomGame'), true);
   assert.match(withoutComments(theme, 'css'), /(?:^|\})\s*\.player-stats-panel\s*\{/u);
 
-  const overlayAssets = [
-    'account-login-otp-20260722.js',
-    'account-register-20260721.js',
-    'account-reset-bootstrap-20260721.js',
-    'account-reset-20260721.js',
-    'player-stats-20260721.js',
-    'game-experience-20260721.js',
-    'account-login-otp-20260722.css',
-    'account-register-20260721.css',
-    'account-reset-20260721.css',
-    'player-stats-20260721.css',
-  ];
   const buildInputs = await runtimeBuildInputs();
-  for (const input of buildInputs) {
-    const commentKind = /\.css$/iu.test(input.label)
-      ? 'css'
-      : /\.(?:html?|svg)$/iu.test(input.label)
-        ? 'html'
-        : 'source';
-    const executableSource = input.text === null ? '' : withoutComments(input.text, commentKind);
-    for (const asset of overlayAssets) {
-      assert.ok(
-        !input.label.includes(asset) && !executableSource.includes(asset),
-        `${input.label} must not load legacy overlay ${asset}`,
-      );
-    }
-  }
-
-  for (const input of buildInputs.filter((file) => file.text !== null && /\.[cm]?[jt]sx?$/u.test(file.label))) {
-    assert.equal(
-      hasGlobalWebSocketReplacement(parseSourceFile(input.text, input.label)),
-      false,
-      `${input.label} must not replace the global WebSocket`,
-    );
-  }
+  assertRuntimeInputOwnership(buildInputs);
+  assertNoGlobalWebSocketReplacement(buildInputs);
 
   for (const [label, document] of [
     ['source', html],
